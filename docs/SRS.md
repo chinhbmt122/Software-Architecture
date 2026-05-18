@@ -147,13 +147,13 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Display name validation | BR-01-1 | Display name is required. Length: 1–100 characters. Printable characters only; no leading or trailing whitespace. |
-| Email validation | BR-01-2 | Email must conform to RFC 5322 format. Case-insensitive storage (stored in lowercase). |
-| Password validation | BR-01-3 | Password must be at least 8 characters. No maximum. |
-| Email uniqueness | BR-01-4 | If an account already exists with the provided email (regardless of registration method), display MSG-001 and do not create a duplicate. |
-| Coin initialisation | BR-01-5 | New accounts are created with `coin_balance = 0`. No `coin_transactions` row is written on registration. |
-| Default role | BR-01-6 | All self-registered accounts receive `role = reader`. The `curator` and `admin` roles are assigned only by an existing admin. |
-| Post-registration redirect | BR-01-7 | After successful registration, redirect to `/` or the `callbackURL` query parameter if present and same-origin. |
+| (4) | BR-01-1 | **Validate Display Name:**<br>On submit: `validateDisplayName(name)`<br>&nbsp;&nbsp;// Checks: required, 1–100 chars, printable only, no leading/trailing whitespace<br>&nbsp;&nbsp;if valid: proceed<br>&nbsp;&nbsp;else: `MessageService.show(MSG-023)`, abort |
+| (4) | BR-01-2 | **Validate Email Format:**<br>On submit: `validateEmail(email)`<br>&nbsp;&nbsp;// Checks: RFC 5322 pattern; normalised as `email.toLowerCase()`<br>&nbsp;&nbsp;if valid: proceed<br>&nbsp;&nbsp;else: `MessageService.show(MSG-023)`, abort |
+| (4) | BR-01-3 | **Validate Password:**<br>On submit: `validatePassword(password)`<br>&nbsp;&nbsp;// Checks: minimum 8 characters, no maximum<br>&nbsp;&nbsp;if valid: proceed<br>&nbsp;&nbsp;else: `MessageService.show(MSG-015)`, abort |
+| (5), (6) | BR-01-4 | **Email Uniqueness Check:**<br>On lookup: `UserRepository.findByEmail(email.toLowerCase())`<br>&nbsp;&nbsp;// DB unique index on `users.email`<br>&nbsp;&nbsp;if not found: proceed to `UserRepository.create()`<br>&nbsp;&nbsp;else: `MessageService.show(MSG-001)`, halt — `UserRepository.create()` never called |
+| (8) | BR-01-5 | **Coin Initialisation:**<br>On create: `UserRepository.create({ coinBalance: 0 })`<br>&nbsp;&nbsp;// No `CoinTransactionRepository.create()` on registration<br>&nbsp;&nbsp;Result: user starts with `coin_balance = 0` |
+| (8) | BR-01-6 | **Default Role Assignment:**<br>On create: `UserRepository.create({ role: 'reader' })`<br>&nbsp;&nbsp;// Role elevated only by admin via `UserRepository.update({ role })` in UC-23<br>&nbsp;&nbsp;Result: user created with `role = 'reader'` |
+| (10) | BR-01-7 | **Post-Registration Redirect:**<br>On redirect: `RedirectService.redirect(callbackURL)`<br>&nbsp;&nbsp;// `isSameOrigin(callbackURL)` — rejects any external URL<br>&nbsp;&nbsp;if same origin: redirect to `callbackURL`<br>&nbsp;&nbsp;else: redirect to `/` |
 
 \pagebreak
 
@@ -179,7 +179,7 @@ This section documents all functional requirements as structured use cases. Each
 3. Guest submits the form.
 4. System looks up the `users` table by the provided email.
 5. System verifies the provided password against the stored bcrypt hash.
-6. If verification fails (wrong email or wrong password), the system returns MSG-002.
+6. System checks IP rate limit (max 10 failed attempts per 15 minutes).
 7. If verification succeeds, the system creates a session record.
 8. System sets the session cookie on the response.
 9. System redirects the user to the `callbackURL` query parameter (if same-origin) or to `/`.
@@ -188,11 +188,11 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Account lookup | BR-02-1 | If no account matches the email, display MSG-002 without disclosing whether the email is registered. |
-| Password verification | BR-02-2 | If the password does not match, display MSG-002. The same error message is used for both email-not-found and wrong-password to prevent user enumeration. |
-| Session TTL | BR-02-3 | Session lifetime: 30 days when "Ghi nhớ đăng nhập" is checked; 24 hours otherwise. |
-| Redirect after sign-in | BR-02-4 | Redirect to `callbackURL` if present and same-origin; otherwise to `/`. Never redirect to an external URL. |
-| Rate limiting | BR-02-5 | After 10 failed attempts from the same IP within 15 minutes, further sign-in attempts are blocked for 15 minutes. |
+| (4) | BR-02-1 | **Account Lookup:**<br>On lookup: `UserRepository.findByEmail(email.toLowerCase())`<br>&nbsp;&nbsp;// Same message used whether email is missing or password is wrong (prevents enumeration)<br>&nbsp;&nbsp;if found: proceed to password check<br>&nbsp;&nbsp;else: `MessageService.show(MSG-002)`, halt |
+| (5) | BR-02-2 | **Password Verification:**<br>On verify: `AuthService.verifyPassword(password, user.passwordHash)` — bcrypt compare<br>&nbsp;&nbsp;if match: proceed to session creation<br>&nbsp;&nbsp;else: `MessageService.show(MSG-002)`, halt |
+| (6) | BR-02-3 | **Rate Limit + Session TTL:**<br>On check: `RateLimiter.check(ip, { max: 10, window: 900 })`<br>&nbsp;&nbsp;if within limit: `SessionService.create(userId, { ttl: rememberMe ? 2592000 : 86400 })`<br>&nbsp;&nbsp;else: block IP for 15 min |
+| (9) | BR-02-4 | **Redirect After Sign-In:**<br>On redirect: `RedirectService.redirect(callbackURL)`<br>&nbsp;&nbsp;// `isSameOrigin(callbackURL)` — rejects any external URL<br>&nbsp;&nbsp;if same origin: redirect to `callbackURL`<br>&nbsp;&nbsp;else: redirect to `/` |
+| (6) | BR-02-5 | **Rate Limit Enforcement:**<br>On exceeded: `RateLimiter.check()` returns exceeded<br>&nbsp;&nbsp;Result: `MessageService.show(MSG-018)`<br>&nbsp;&nbsp;// No session or cookie created; further attempts blocked for 15 min |
 
 \pagebreak
 
@@ -229,11 +229,11 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Account linking | BR-03-1 | If the Google email matches an existing email/password account, the Google identity is linked to that account. The user is not prompted — linking happens silently on first Google sign-in with a matching email. |
-| No duplicate accounts | BR-03-2 | The system never creates two accounts for the same email. Uniqueness is enforced at the database level. |
-| Display name source | BR-03-3 | For new Google-registered accounts, the display name is taken from the Google profile. The user can change it later via `/settings`. |
-| No password for Google accounts | BR-03-4 | Accounts created exclusively via Google OAuth have no password hash. The "Change Password" form (UC-20) is hidden for these users. |
-| OAuth failure handling | BR-03-5 | If the OAuth flow fails or the user cancels on Google's page, the system displays MSG-003 and returns the user to the sign-in page. |
+| (8), (9) | BR-03-1 | **Account Linking:**<br>On lookup: `AccountRepository.findByEmail(googleProfile.email)`<br>&nbsp;&nbsp;if found: `AccountRepository.linkGoogle(userId, googleSubjectId)`<br>&nbsp;&nbsp;// Linking is silent; user is not prompted<br>&nbsp;&nbsp;else: continue to account creation check |
+| (8), (10), (11) | BR-03-2 | **No Duplicate Accounts:**<br>On check: `UserRepository.findByEmail(googleProfile.email)`<br>&nbsp;&nbsp;// DB unique index on `users.email`<br>&nbsp;&nbsp;if found: link Google identity; do not create new user<br>&nbsp;&nbsp;else: `UserRepository.create()` — two accounts for same email never created |
+| (10) | BR-03-3 | **Display Name Source:**<br>On create: `UserRepository.create({ name: googleProfile.name, role: 'reader', coinBalance: 0 })`<br>&nbsp;&nbsp;// User can update name later via `UserRepository.update({ name })` in UC-19 |
+| (10) | BR-03-4 | **No Password for Google Accounts:**<br>On create: `UserRepository.create()` called without `passwordHash`<br>&nbsp;&nbsp;`AuthService.hasPassword(userId)` returns false<br>&nbsp;&nbsp;// "Đổi mật khẩu" section hidden in Server Component based on `hasPassword()` |
+| (2), (5) | BR-03-5 | **OAuth Failure Handling:**<br>On error: `GoogleOAuthService.exchangeCode(code)` throws or user cancels<br>&nbsp;&nbsp;Result: `MessageService.show(MSG-003)`<br>&nbsp;&nbsp;`RedirectService.redirect('/sign-in')`<br>&nbsp;&nbsp;// No user record created |
 
 \pagebreak
 
@@ -266,10 +266,10 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Session invalidation | BR-04-1 | The session token is immediately deleted from the `sessions` table on the server. Subsequent requests with the old cookie must be treated as unauthenticated. |
-| Cookie clearing | BR-04-2 | The session cookie is cleared by setting `Max-Age=0` and `Expires` to a past date. |
-| Redirect destination | BR-04-3 | After sign-out, always redirect to `/`. Do not redirect to protected pages or to the page the user was previously on if it requires authentication. |
-| No confirmation prompt | BR-04-4 | No confirmation dialog is shown before signing out. The action is immediate upon click. |
+| (5) | BR-04-1 | **Session Invalidation:**<br>On sign-out: `SessionRepository.delete(sessionToken)`<br>&nbsp;&nbsp;// Removes row from `sessions` table immediately<br>&nbsp;&nbsp;Result: old cookie → `SessionService.validate()` returns null → user is unauthenticated |
+| (6) | BR-04-2 | **Cookie Clearing:**<br>On clear: `CookieService.clear('better-auth.session', { maxAge: 0, expires: new Date(0) })`<br>&nbsp;&nbsp;// `Max-Age=0` instructs browser to delete the cookie immediately |
+| (7) | BR-04-3 | **Redirect Destination:**<br>On redirect: `RedirectService.redirect('/')`<br>&nbsp;&nbsp;// Always redirects to home<br>&nbsp;&nbsp;// Never redirects to a previously visited protected page |
+| (2) | BR-04-4 | **No Confirmation Prompt:**<br>On click: `SessionRepository.delete()` is called immediately, no dialog shown<br>&nbsp;&nbsp;// Action is irreversible upon click at activity (2) |
 
 \pagebreak
 
@@ -313,12 +313,12 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Email disclosure | BR-05-1 | The system always responds with a neutral message regardless of whether the email is registered, preventing user enumeration. |
-| Token security | BR-05-2 | The reset token is a URL-safe 32-byte random value. Only a SHA-256 hash is stored in the database. |
-| Token expiry | BR-05-3 | Reset tokens expire 1 hour after issuance. |
-| Token single use | BR-05-4 | Each token can only be used once. It is invalidated immediately after the password is successfully changed. |
-| New password constraints | BR-05-5 | New password must be at least 8 characters and must differ from the current password. |
-| Google accounts | BR-05-6 | Users with Google-only accounts (no password) are not shown the "Quên mật khẩu?" link. If they attempt to use the endpoint directly, the system returns an informational error. |
+| (5), (6) | BR-05-1 | **Email Enumeration Prevention:**<br>On lookup: `UserRepository.findByEmail(email)` — result never disclosed<br>&nbsp;&nbsp;// `MessageService.show(MSG-024)` called unconditionally<br>&nbsp;&nbsp;// whether or not the account exists |
+| (7), (8) | BR-05-2 | **Token Security:**<br>On generate: `TokenService.generate()` → 32-byte URL-safe random string<br>&nbsp;&nbsp;On store: `TokenRepository.store({ hash: sha256(token), userId, expiresAt })`<br>&nbsp;&nbsp;// Raw token never persisted; only sha256 hash stored |
+| (7), (8) | BR-05-3 | **Token Expiry:**<br>On store: `TokenRepository.store({ expiresAt: Date.now() + 3600000 })`<br>&nbsp;&nbsp;// Expires in 1 hour<br>&nbsp;&nbsp;On validate: `TokenService.validate(token)` → `TokenRepository.findByHash(sha256(token))`<br>&nbsp;&nbsp;// Checks: `expiresAt > now()` |
+| (11), (17) | BR-05-4 | **Single-Use Token:**<br>On success: `AuthService.updatePassword()` completes<br>&nbsp;&nbsp;→ `TokenRepository.delete(tokenId)`<br>&nbsp;&nbsp;if token missing: `TokenService.validate()` fails → `MessageService.show(MSG-025)` |
+| (15) | BR-05-5 | **New Password Constraints:**<br>On validate: `validatePassword(newPassword)` — min 8 chars<br>&nbsp;&nbsp;if too short: `MessageService.show(MSG-015)`<br>&nbsp;&nbsp;On check: `AuthService.isDifferentPassword(newPassword, user.passwordHash)`<br>&nbsp;&nbsp;if same as current: `MessageService.show(MSG-017)` |
+| (3), (5) | BR-05-6 | **Google-Only Account Exclusion:**<br>On check: `UserRepository.hasPassword(userId)` — returns false when `passwordHash` is null<br>&nbsp;&nbsp;// "Quên mật khẩu?" link hidden server-side<br>&nbsp;&nbsp;if direct endpoint call: `MessageService.show(MSG-018)`, no token generated |
 
 \pagebreak
 
@@ -352,13 +352,13 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Default sort | BR-06-1 | Default sort order is by most recently updated novel (`updatedAt DESC`). |
-| Available sort options | BR-06-2 | Supported sort values: `updatedAt` (newest update), `trending` (view count), `rating` (average rating), `chapters` (chapter count). |
-| Pagination size | BR-06-3 | Each page displays a maximum of 30 novels. Pagination controls appear when total results exceed 30. |
-| Status filter values | BR-06-4 | Valid status filter values: `ONGOING`, `COMPLETED`, `HIATUS`, `DROPPED`. Selecting "Tất cả" or providing no status removes the filter. |
-| Single genre filter | BR-06-5 | At most one genre filter can be active at a time. |
-| Empty results | BR-06-6 | If no novels match the current filters, an empty-state illustration and text are shown instead of the grid. |
-| URL state | BR-06-7 | All filter and sort state is reflected in the URL so that the view is bookmarkable and shareable. |
+| (2), (3) | BR-06-1 | **Default Sort:**<br>On parse: `QueryParser.parseSort(sort)` — defaults to `'updatedAt'` when param absent<br>&nbsp;&nbsp;`NovelRepository.findAll({ sort: 'updatedAt', order: 'desc' })` |
+| (2) | BR-06-2 | **Available Sort Options:**<br>On parse: `QueryParser.parseSort(sort)`<br>&nbsp;&nbsp;// Accepts: `'updatedAt'`, `'trending'`, `'rating'`, `'chapters'`<br>&nbsp;&nbsp;if unknown value: fall back to `'updatedAt'` |
+| (3), (4) | BR-06-3 | **Pagination:**<br>On query: `NovelRepository.findAll({ limit: 30, offset: (page - 1) * 30 })`<br>&nbsp;&nbsp;// Pagination controls render when `totalCount > 30` |
+| (2) | BR-06-4 | **Status Filter Values:**<br>On parse: `QueryParser.parseStatus(status)`<br>&nbsp;&nbsp;// Accepts: `'ONGOING'`, `'COMPLETED'`, `'HIATUS'`, `'DROPPED'`<br>&nbsp;&nbsp;if absent or unknown: no status filter applied |
+| (2) | BR-06-5 | **Single Genre Filter:**<br>On parse: `QueryParser.parseGenre(genre)` — returns at most one genre ID<br>&nbsp;&nbsp;if multiple params: only first is applied |
+| (5), (6) | BR-06-6 | **Empty Results:**<br>On count: `NovelRepository.count(filters)` returns 0<br>&nbsp;&nbsp;→ `EmptyStateComponent.render({ message: 'Không tìm thấy truyện', link: '/novels' })`<br>&nbsp;&nbsp;// No novel grid rendered |
+| (1), (8) | BR-06-7 | **URL State:**<br>On filter change: `URLService.encode({ q, status, genre, sort, page })`<br>&nbsp;&nbsp;// Sharing or reloading URL restores identical view |
 
 \pagebreak
 
@@ -392,12 +392,12 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Minimum query length | BR-07-1 | A search request is sent only when the query is at least 1 non-whitespace character. An empty query returns all novels (same as no filter). |
-| Debounce | BR-07-2 | Input is debounced for 300 ms to avoid sending a request on every keystroke. |
-| Search scope | BR-07-3 | Meilisearch indexes the `title` and `synopsis` fields. Tag and genre names are not searched. |
-| Typo tolerance | BR-07-4 | Meilisearch's default typo tolerance is enabled (up to 2 typos for words longer than 8 characters). |
-| Fallback search | BR-07-5 | If the Meilisearch service is unavailable, the system falls back to a PostgreSQL `ILIKE '%query%'` search on the `title` field only. |
-| Combined filters | BR-07-6 | Search is compatible with status and genre filters. All active filters are applied together (AND logic). |
+| (1), (2) | BR-07-1 | **Minimum Query Length:**<br>On input: `if (query.trim().length === 0)` → skip<br>&nbsp;&nbsp;// `SearchService.search()` not called<br>&nbsp;&nbsp;Result: empty query removes `q` from URL and restores full list |
+| (2) | BR-07-2 | **Debounce:**<br>On keystroke: `Debounce.delay(handleInput, 300)` — waits 300 ms after last keystroke<br>&nbsp;&nbsp;// Prevents excessive API calls per keystroke |
+| (4) | BR-07-3 | **Search Scope:**<br>On search: `MeilisearchService.search(query, { attributesToSearchOn: ['title', 'synopsis'] })`<br>&nbsp;&nbsp;// Tags and genre names are excluded from the index |
+| (4) | BR-07-4 | **Typo Tolerance:**<br>On search: `MeilisearchService.search()` with `typoTolerance: { enabled: true }`<br>&nbsp;&nbsp;// Up to 2 edits for words > 8 characters; no extra config needed |
+| (4) | BR-07-5 | **Fallback Search:**<br>On error: `try { MeilisearchService.search(query) } catch { NovelRepository.searchFallback(query) }`<br>&nbsp;&nbsp;// Fallback query: `WHERE title ILIKE '%query%'` on `title` field only |
+| (4) | BR-07-6 | **Combined Filters:**<br>On search: `SearchService.search(query, { status, genre })` — all conditions AND-ed<br>&nbsp;&nbsp;// Status and genre applied in same Meilisearch request via `filter` param |
 
 \pagebreak
 
@@ -433,11 +433,11 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Single status selection | BR-08-1 | Only one status filter can be active at a time. Clicking the active status pill deselects it (reverts to "Tất cả"). |
-| Single genre selection | BR-08-2 | Only one genre filter can be active at a time. Clicking the active genre pill deselects it. |
-| Filter persistence in URL | BR-08-3 | All active filters are stored in the URL query string. Sharing or reloading the URL restores the same filtered view. |
-| Result count display | BR-08-4 | The number of novels matching the current filter combination is displayed as small muted text (e.g., "42 truyện"). |
-| Combined with search | BR-08-5 | Status and genre filters combine with any active search query using AND logic — all conditions must be satisfied simultaneously. |
+| (1), (2) | BR-08-1 | **Single Status Selection:**<br>On toggle: `URLService.toggleParam('status', value)`<br>&nbsp;&nbsp;if same value active: removes param (deselects)<br>&nbsp;&nbsp;// Only one status value allowed at a time |
+| (7), (8) | BR-08-2 | **Single Genre Selection:**<br>On toggle: `URLService.toggleParam('genre', genreId)`<br>&nbsp;&nbsp;if same value active: removes param (deselects)<br>&nbsp;&nbsp;// Only one genre ID allowed in URL at a time |
+| (2), (8) | BR-08-3 | **Filter Persistence in URL:**<br>On toggle: `URLService.encode({ status, genre, q, sort, page })`<br>&nbsp;&nbsp;// Sharing or reloading URL restores identical view |
+| (5), (10) | BR-08-4 | **Result Count Display:**<br>On count: `NovelRepository.count({ status, genre, q })` returns total<br>&nbsp;&nbsp;Result: rendered as `"{n} truyện"` in muted text above the novel grid |
+| (3), (9) | BR-08-5 | **Combined with Search:**<br>On query: `NovelRepository.findAll({ status, genre, q })` — all conditions AND-ed<br>&nbsp;&nbsp;// Single DB query handles status, genre, and search simultaneously |
 
 \pagebreak
 
@@ -477,12 +477,12 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Slug uniqueness | BR-09-1 | Novel slugs are globally unique. A request for a non-existent slug returns HTTP 404. |
-| View counter | BR-09-2 | `totalViews` increment is a fire-and-forget, non-blocking operation. It must not delay the page response. |
-| Published chapters only | BR-09-3 | Draft chapters (`publishedAt IS NULL`) and scheduled chapters with a future `publishedAt` are not shown in the chapter list. |
-| Chapter VIP indicators | BR-09-4 | VIP chapters display an amber lock icon in the chapter list row regardless of the user's access level. |
-| Recommendations count | BR-09-5 | Up to 6 recommended novels are displayed. Recommendations share at least one genre with the current novel and are sorted by view count descending. |
-| Rating display | BR-09-6 | Average rating is shown only if at least one review exists. Displayed to one decimal place (e.g., 4.7). |
+| (2), (3) | BR-09-1 | **Slug Uniqueness:**<br>On lookup: `NovelRepository.findBySlug(slug)`<br>&nbsp;&nbsp;// DB unique index on `novels.slug`<br>&nbsp;&nbsp;if null: `NotFoundService.render404()` — HTTP 404<br>&nbsp;&nbsp;else: render novel detail page |
+| (7) | BR-09-2 | **View Counter (Fire-and-Forget):**<br>On page load: `ViewCountService.increment(novelId)` — called without `await`<br>&nbsp;&nbsp;// Runs as detached promise<br>&nbsp;&nbsp;// Must never block the page response |
+| (4) | BR-09-3 | **Published Chapters Only:**<br>On fetch: `ChapterRepository.findPublished(novelId)`<br>&nbsp;&nbsp;// Filters: `WHERE publishedAt IS NOT NULL AND publishedAt <= now()`<br>&nbsp;&nbsp;// Drafts and future-scheduled chapters excluded |
+| (8), (9) | BR-09-4 | **VIP Indicators:**<br>On render: `ChapterListItem.render({ chapter })`<br>&nbsp;&nbsp;// Shows amber lock icon when `chapter.isVip === true`<br>&nbsp;&nbsp;// Shown regardless of user's access level |
+| (6) | BR-09-5 | **Recommendations:**<br>On fetch: `NovelRepository.findRecommended(novelId, genreIds, { limit: 6 })`<br>&nbsp;&nbsp;// Shares ≥1 genre, excludes current novel<br>&nbsp;&nbsp;// Sorted by `totalViews DESC` |
+| (8) | BR-09-6 | **Rating Display:**<br>On render: `ReviewService.getAverageRating(novelId)`<br>&nbsp;&nbsp;if null (no reviews): rating not displayed<br>&nbsp;&nbsp;else: rendered as `avgRating.toFixed(1)` (e.g., `4.7`) |
 
 \pagebreak
 
@@ -519,12 +519,12 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| VIP access check | BR-10-1 | VIP access is granted if the user has either: (a) a `chapter_unlocks` row matching `userId + chapterId`, OR (b) an active `subscriptions` row (status = `ACTIVE`, `expiresAt > now()`). |
-| Server-side content stripping | BR-10-2 | The server NEVER sends VIP chapter content in the page payload if the user lacks access. Content is stripped in the Server Component, not hidden via CSS. |
-| Guest VIP handling | BR-10-3 | Guests viewing a VIP chapter see the locked overlay with a prompt to sign in. They are NOT redirected automatically — they can still view the chapter metadata. |
-| Reading progress update | BR-10-4 | Progress is upserted on every chapter page load for authenticated users. An earlier chapter load only updates the record if `chapterNumber > stored chapterNumber`. |
-| Reading time display | BR-10-5 | Estimated reading time is calculated as `ceil(wordCount / 250)` minutes and shown in the reader top bar. |
-| Chapter navigation | BR-10-6 | Prev/next buttons show the adjacent chapter numbers. If the chapter is the first or last, the corresponding button is hidden or disabled. |
+| (4) | BR-10-1 | **VIP Access Check:**<br>On check: `AccessService.checkVip(userId, chapterId)`<br>&nbsp;&nbsp;if `ChapterUnlockRepository.exists(userId, chapterId)`: `isLocked = false`<br>&nbsp;&nbsp;else if `SubscriptionRepository.findActive(userId, { now })` non-null: `isLocked = false`<br>&nbsp;&nbsp;else: `isLocked = true` |
+| (5) | BR-10-2 | **Server-Side Content Stripping:**<br>On response: `if (isLocked) { chapter.content = null }`<br>&nbsp;&nbsp;// In Server Component before response<br>&nbsp;&nbsp;// Content omitted from payload entirely; never hidden via CSS |
+| (4), (5) | BR-10-3 | **Guest VIP Handling:**<br>On access: `!userId && chapter.isVip` → `isLocked = true`<br>&nbsp;&nbsp;`ChapterReader.renderLockedOverlay({ signInUrl })`<br>&nbsp;&nbsp;// No redirect; metadata still visible |
+| (7) | BR-10-4 | **Reading Progress Update:**<br>On chapter load: `ReadingProgressRepository.upsert(userId, novelId, chapterId, { onlyIfGreater: true })`<br>&nbsp;&nbsp;// Updates only when `newChapterNumber >= storedChapterNumber` |
+| (8) | BR-10-5 | **Reading Time Display:**<br>On render: `ReadingTimeService.estimate(wordCount)` → `Math.ceil(wordCount / 250)` minutes<br>&nbsp;&nbsp;// Shown in reader top bar (e.g., "~12 phút đọc") |
+| (6) | BR-10-6 | **Chapter Navigation:**<br>On fetch: `ChapterNavigationService.getAdjacent(novelId, chapterNumber)` → `{ prev, next }`<br>&nbsp;&nbsp;if `prev === null`: prev button hidden<br>&nbsp;&nbsp;if `next === null`: next button hidden |
 
 \pagebreak
 
@@ -562,10 +562,10 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Default settings | BR-11-1 | Default values on first visit: theme = Tối, font = Serif (Lora), size = 18 px, line-height = 1.85, width = 680 px. |
-| Persistence scope | BR-11-2 | Settings are stored in `localStorage` only. They persist across sessions on the same browser and device but are not synced across devices. |
-| Theme independence | BR-11-3 | The reader theme is independent of the site-wide dark/light mode toggle. Changing the reader theme does not affect the navigation bar or other pages. |
-| No server storage | BR-11-4 | Reader settings are never stored in the database. They are purely client-side preferences. |
+| (2) | BR-11-1 | **Default Settings:**<br>On load: `ReaderSettingsService.getDefaults()`<br>&nbsp;&nbsp;// Returns: `{ theme: 'dark', font: 'serif', fontSize: 18, lineHeight: 1.85, contentWidth: 680 }`<br>&nbsp;&nbsp;// Applied when `LocalStorageService.get('reader-settings')` returns null |
+| (8) | BR-11-2 | **Persistence Scope:**<br>On change: `LocalStorageService.set('reader-settings', JSON.stringify(settings))`<br>&nbsp;&nbsp;// `UserRepository.update()` never called — no cross-device sync |
+| (7) | BR-11-3 | **Theme Independence:**<br>On apply: `ReaderSettingsService.applyTheme(theme)`<br>&nbsp;&nbsp;// CSS variables applied to `.chapter-content` only<br>&nbsp;&nbsp;// Site-wide theme (`document.documentElement`) is unaffected |
+| (8) | BR-11-4 | **No Server Storage:**<br>On save: `ReaderSettingsService.save(settings)` calls only `LocalStorageService.set()`<br>&nbsp;&nbsp;// No `UserRepository.update()` or API call is ever made |
 
 \pagebreak
 
@@ -601,9 +601,9 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Authentication required | BR-12-1 | If an unauthenticated guest clicks the follow button, they are redirected to `/sign-in?callbackURL=/novels/[slug]`. |
-| Idempotency | BR-12-2 | The follow API endpoint is idempotent. Sending a follow request when already following returns success without creating a duplicate record (enforced by a unique index on `novel_follows(userId, novelId)`). |
-| Notification integration | BR-12-3 | When a new chapter is published, the system queues notifications for all users who follow the novel. This feature is implemented in Phase 3. |
+| (3) | BR-12-1 | **Authentication Required:**<br>On click: `AuthService.isAuthenticated(request)`<br>&nbsp;&nbsp;if authenticated: proceed to follow/unfollow<br>&nbsp;&nbsp;else: `RedirectService.redirectToSignIn('/novels/[slug]')` — `NovelFollowRepository` never called |
+| (5), (6) | BR-12-2 | **Idempotency:**<br>On follow: `NovelFollowRepository.insert(userId, novelId)` — `INSERT ... ON CONFLICT DO NOTHING`<br>&nbsp;&nbsp;On unfollow: `NovelFollowRepository.delete(userId, novelId)` — safe to call multiple times |
+| (6) | BR-12-3 | **Notification Integration (Phase 3):**<br>On publish: `NotificationQueue.add({ type: 'new_chapter', novelId, followerId })` per follower<br>&nbsp;&nbsp;// Uses `NovelFollowRepository.findFollowersByNovel(novelId)` to fan out |
 
 \pagebreak
 
@@ -635,10 +635,10 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Upsert direction | BR-13-1 | Progress only moves forward. Re-reading an earlier chapter does not overwrite the stored (later) chapter. The record is updated only if `newChapterNumber >= storedChapterNumber`. |
-| One record per novel | BR-13-2 | There is exactly one `reading_progress` row per (userId, novelId) pair, enforced by a unique constraint. |
-| Progress percentage | BR-13-3 | Progress percentage is calculated as `min(lastChapterNumber / totalChapters × 100, 100)`, displayed as an integer. |
-| Guest users | BR-13-4 | Reading progress is not tracked for unauthenticated users. No anonymous tracking via cookies or IP. |
+| (4) | BR-13-1 | **Forward-Only Progress:**<br>On upsert: `ReadingProgressRepository.upsert(userId, novelId, chapterId)`<br>&nbsp;&nbsp;// SQL: `INSERT ... ON CONFLICT DO UPDATE ... WHERE EXCLUDED.chapterNumber >= stored.chapterNumber`<br>&nbsp;&nbsp;// Re-reading an earlier chapter never overwrites stored progress |
+| (3), (4) | BR-13-2 | **One Record per Novel:**<br>On upsert: `ReadingProgressRepository.upsert()`<br>&nbsp;&nbsp;// DB unique constraint on `(userId, novelId)`<br>&nbsp;&nbsp;// Always resolves to exactly one row per pair |
+| (6) | BR-13-3 | **Progress Percentage:**<br>On render: `ProgressService.calculate(lastChapterNumber, totalChapters)`<br>&nbsp;&nbsp;// Returns: `Math.min(Math.round(n / total * 100), 100)`<br>&nbsp;&nbsp;// Rendered as integer percentage in library progress bar |
+| (1) | BR-13-4 | **Guest Exclusion:**<br>On chapter load: `AuthService.isAuthenticated(request)`<br>&nbsp;&nbsp;if authenticated: call `ReadingProgressRepository.upsert()`<br>&nbsp;&nbsp;else: upsert skipped; no anonymous tracking |
 
 \pagebreak
 
@@ -674,10 +674,10 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Protected route | BR-14-1 | `/library` is a protected route enforced at the middleware level. Unauthenticated users are always redirected to sign-in. |
-| Progress display | BR-14-2 | The progress bar height is 3 px, primary color fill, full width of the card. Width represents `lastChapterNumber / totalChapters` as a percentage. |
-| Empty state | BR-14-3 | If no novels match the selected tab, display a centered `BookOpen` icon, the message "Chưa có truyện nào trong tủ sách", and a "Khám phá truyện" link button pointing to `/novels`. |
-| Tab default | BR-14-4 | The default active tab on page load is "Tất cả". Tab state is stored in the URL (`?tab=reading`, `?tab=completed`). |
+| (2) | BR-14-1 | **Protected Route:**<br>On navigate: `MiddlewareService.protect('/library')`<br>&nbsp;&nbsp;if authenticated: render library<br>&nbsp;&nbsp;else: redirect to `/sign-in?callbackURL=/library`<br>&nbsp;&nbsp;// Enforced at Next.js middleware before page renders |
+| (7) | BR-14-2 | **Progress Bar:**<br>On render: `ProgressBarComponent.render({ value: lastChapterNumber / totalChapters })`<br>&nbsp;&nbsp;// Height 3 px, primary color<br>&nbsp;&nbsp;// Percentage clamped via `ProgressService.calculate()` |
+| (7) | BR-14-3 | **Empty State:**<br>On check: `LibraryService.isEmpty(novels)` → true when filtered list is empty<br>&nbsp;&nbsp;→ `EmptyStateComponent.render({ icon: BookOpen, message: 'Chưa có truyện nào', link: '/novels' })` |
+| (5) | BR-14-4 | **Tab Default:**<br>On parse: `URLService.parseTab(tab)` defaults to `'all'` when param absent<br>&nbsp;&nbsp;`LibraryService.filterByTab(novels, tab)` applies filter<br>&nbsp;&nbsp;// State stored as `?tab=reading` / `?tab=completed` |
 
 \pagebreak
 
@@ -713,12 +713,12 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Authentication required | BR-15-1 | Only authenticated readers can write reviews. Unauthenticated users see a prompt to sign in. |
-| One review per user | BR-15-2 | Each user can have at most one review per novel, enforced by a unique constraint on `reviews(userId, novelId)`. |
-| Rating required | BR-15-3 | A star rating (integer 1–5) is required. The form cannot be submitted without selecting a rating. |
-| Text is optional | BR-15-4 | Review body text is optional. Maximum 2,000 characters. |
-| avgRating recalculation | BR-15-5 | `novels.avgRating` is updated atomically after every review insert, update, or delete using the SQL average aggregate. |
-| Review deletion | BR-15-6 | Readers can delete their own review. This also triggers `avgRating` recalculation. |
+| (1), (2) | BR-15-1 | **Authentication Required:**<br>On click: `AuthService.isAuthenticated(request)`<br>&nbsp;&nbsp;if authenticated: show review form<br>&nbsp;&nbsp;else: show sign-in prompt — `ReviewRepository.upsert()` never called |
+| (9) | BR-15-2 | **One Review per User:**<br>On submit: `ReviewRepository.upsert(userId, novelId, { rating, body })`<br>&nbsp;&nbsp;// SQL: `INSERT ... ON CONFLICT (userId, novelId) DO UPDATE`<br>&nbsp;&nbsp;// DB unique constraint on `reviews(userId, novelId)` enforces one-per-user |
+| (5), (7), (8) | BR-15-3 | **Rating Required:**<br>On validate: `validateRating(rating)` — integer 1–5<br>&nbsp;&nbsp;if null or out-of-range: block submission<br>&nbsp;&nbsp;// Validated client-side and server-side |
+| (6), (8) | BR-15-4 | **Text is Optional:**<br>On validate: `validateReviewBody(body)` — nullable; max 2,000 chars<br>&nbsp;&nbsp;if `body.length > 2000`: `MessageService.show('Nội dung tối đa 2000 ký tự')` |
+| (10) | BR-15-5 | **avgRating Recalculation:**<br>On upsert: after `ReviewRepository.upsert()` → `NovelRepository.updateAvgRating(novelId)`<br>&nbsp;&nbsp;// SQL: `UPDATE novels SET avgRating = (SELECT AVG(rating) FROM reviews WHERE novelId = ?)`<br>&nbsp;&nbsp;// Same DB transaction |
+| (9), (10) | BR-15-6 | **Review Deletion:**<br>On delete: `ReviewRepository.delete(reviewId, userId)`<br>&nbsp;&nbsp;// Only if `review.userId === requestingUserId`<br>&nbsp;&nbsp;After delete: `NovelRepository.updateAvgRating(novelId)` recalculates |
 
 \pagebreak
 
@@ -754,12 +754,12 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Authentication required | BR-16-1 | Only authenticated users can post comments. Unauthenticated visitors see a prompt to sign in when clicking the input. |
-| Character limit | BR-16-2 | Maximum 1,000 characters per comment or reply. |
-| Nesting depth | BR-16-3 | Comments support exactly one level of nesting (parent comment → replies). Replies cannot themselves be replied to (no deep nesting). |
-| Edit / Delete | BR-16-4 | Users can edit or delete their own comments within 15 minutes of posting. Admins and curators can delete any comment at any time. |
-| Moderation | BR-16-5 | Comments flagged as reported by other users are hidden from public view pending curator or admin review. |
-| Comment ordering | BR-16-6 | Top-level comments are displayed newest-first by default. Replies are displayed oldest-first under their parent. |
+| (1), (2) | BR-16-1 | **Authentication Required:**<br>On submit: `AuthService.isAuthenticated(request)`<br>&nbsp;&nbsp;if authenticated: proceed to `CommentRepository.create()`<br>&nbsp;&nbsp;else: show inline sign-in prompt — `CommentRepository.create()` never called |
+| (6) | BR-16-2 | **Character Limit:**<br>On validate: `validateCommentContent(content)` — non-empty AND `content.length <= 1000`<br>&nbsp;&nbsp;if empty: `MSG('Nội dung không được để trống')`<br>&nbsp;&nbsp;if too long: `MSG('Tối đa 1000 ký tự')` |
+| (3), (7) | BR-16-3 | **Nesting Depth:**<br>On create: `CommentRepository.create({ parentId })`<br>&nbsp;&nbsp;if `parentId` given: API verifies `parent.parentId === null`<br>&nbsp;&nbsp;if reply-to-reply: rejected with HTTP 400 |
+| (7) | BR-16-4 | **Edit / Delete Window:**<br>On check: `CommentService.canEdit(comment, user)`<br>&nbsp;&nbsp;// Condition: `userId match && (now - createdAt) < 900000` ms<br>&nbsp;&nbsp;// Admins/curators bypass the 15-min check |
+| (7) | BR-16-5 | **Moderation:**<br>On report: `ReportService.flag(commentId)` → sets `comment.isHidden = true` on sufficient reports<br>&nbsp;&nbsp;On fetch: `CommentRepository.findAll({ isHidden: false })`<br>&nbsp;&nbsp;// Excludes hidden comments from public view |
+| (7), (8) | BR-16-6 | **Comment Ordering:**<br>Top-level: `CommentRepository.findAll({ sort: 'createdAt', order: 'desc' })`<br>&nbsp;&nbsp;Replies: `CommentRepository.findReplies(parentId, { sort: 'createdAt', order: 'asc' })` |
 
 \pagebreak
 
@@ -804,12 +804,12 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Authentication required | BR-17-1 | Unauthenticated users are shown a sign-in prompt and cannot initiate a purchase. |
-| HMAC verification mandatory | BR-17-2 | Every webhook must have its HMAC-SHA256 signature verified using the MoMo secret key. Webhooks with invalid signatures are rejected with HTTP 400 and logged. |
-| Atomic update | BR-17-3 | Coin balance increment and `coin_transactions` insert must be executed in a single database transaction to prevent partial state. |
-| Idempotency | BR-17-4 | Duplicate webhook calls for the same `orderId` are detected by checking the existing `payments` status. If already `COMPLETED`, the system returns HTTP 200 without re-processing. |
-| Sandbox environment | BR-17-5 | Development uses MoMo Sandbox. No real money is charged. This is disclosed on the `/pricing` page footer. |
-| Failed payment | BR-17-6 | If MoMo reports `resultCode != 0`, the `payments.status` is set to `FAILED`. Coin balance is not changed. The user is redirected to the failure page with MSG-012. |
+| (4) | BR-17-1 | **Authentication Required:**<br>On purchase: `AuthService.isAuthenticated(request)`<br>&nbsp;&nbsp;if authenticated: proceed to `PaymentRepository.create()`<br>&nbsp;&nbsp;else: show sign-in prompt, abort — `MoMoService.createPayment()` never called |
+| (11) | BR-17-2 | **HMAC Verification:**<br>On webhook: `MoMoService.verifyHmac(payload, signature, secret)`<br>&nbsp;&nbsp;// `createHmac('sha256').update(data).digest('hex') === signature`<br>&nbsp;&nbsp;if valid: process payment<br>&nbsp;&nbsp;else: HTTP 400, `LogService.warn('momo-invalid-hmac')` — no DB changes |
+| (12) | BR-17-3 | **Atomic Update:**<br>On success: `db.transaction(() => {`<br>&nbsp;&nbsp;`PaymentRepository.update(orderId, { status: 'COMPLETED' })`<br>&nbsp;&nbsp;`UserRepository.incrementCoins(totalCoins)`<br>&nbsp;&nbsp;`CoinTransactionRepository.create({ type: 'CREDIT', amount: totalCoins })`<br>`})`<br>&nbsp;&nbsp;// All three writes succeed or all roll back |
+| (12) | BR-17-4 | **Idempotency:**<br>On webhook: `PaymentRepository.findByOrderId(orderId)`<br>&nbsp;&nbsp;if `status === 'COMPLETED'`: return HTTP 200, skip transaction<br>&nbsp;&nbsp;// Prevents double-crediting on MoMo webhook retries |
+| (5), (6) | BR-17-5 | **Sandbox Environment:**<br>On init: `MoMoService.createPayment({ sandbox: process.env.NODE_ENV !== 'production' })`<br>&nbsp;&nbsp;// Sandbox in dev — no real money charged<br>&nbsp;&nbsp;// Disclaimer displayed in `/pricing` footer |
+| (12) | BR-17-6 | **Failed Payment:**<br>On failure: `resultCode !== 0`<br>&nbsp;&nbsp;→ `PaymentRepository.update(orderId, { status: 'FAILED' })`<br>&nbsp;&nbsp;// `UserRepository.incrementCoins()` NOT called<br>&nbsp;&nbsp;Redirect: `/payments/failure`, `MessageService.show(MSG-012)` |
 
 \pagebreak
 
@@ -848,12 +848,12 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Insufficient balance | BR-18-1 | If `coin_balance < coinCost`, display MSG-005 with a link to `/pricing`. Abort without any database changes. |
-| Atomic deduction | BR-18-2 | Coin deduction, unlock record creation, and transaction ledger insert are all performed in a single database transaction. |
-| Permanent unlock | BR-18-3 | Once a chapter is unlocked, the `chapter_unlocks` record is never deleted. The user retains access permanently, even if their coin balance drops to zero later. |
-| Default coin cost | BR-18-4 | Default `coinCost` for a VIP chapter is 1 coin. Curators may set a different `coinCost` per chapter (positive integer). |
-| Guest redirect | BR-18-5 | If a guest attempts to unlock (e.g., direct API call), they receive HTTP 401 and a redirect to sign-in. |
-| Subscription bypass | BR-18-6 | Users with an active `ACTIVE` subscription status do not see the lock overlay and do not spend coins, regardless of their balance. |
+| (5), (6) | BR-18-1 | **Insufficient Balance:**<br>On check: `UserRepository.getCoins(userId)`<br>&nbsp;&nbsp;if `coinBalance < chapter.coinCost`:<br>&nbsp;&nbsp;&nbsp;&nbsp;`MessageService.show(MSG-005)`, show `/pricing` link<br>&nbsp;&nbsp;&nbsp;&nbsp;// `ChapterUnlockRepository.create()` never called |
+| (7) | BR-18-2 | **Atomic Deduction:**<br>On unlock: `db.transaction(() => {`<br>&nbsp;&nbsp;`ChapterUnlockRepository.create(userId, chapterId, coinSpent)`<br>&nbsp;&nbsp;`UserRepository.decrementCoins(coinCost)`<br>&nbsp;&nbsp;`CoinTransactionRepository.create({ type: 'DEBIT', amount: coinCost })`<br>`})`<br>&nbsp;&nbsp;// All three writes succeed or all roll back |
+| (7) | BR-18-3 | **Permanent Unlock:**<br>On create: `ChapterUnlockRepository.create()` — no TTL, no expiry<br>&nbsp;&nbsp;// `ChapterUnlockRepository.delete()` does not exist<br>&nbsp;&nbsp;// Access persists regardless of future coin balance |
+| (7) | BR-18-4 | **Default Coin Cost:**<br>On create: `chapter.coinCost` defaults to `1` at `ChapterRepository.create()`<br>&nbsp;&nbsp;// API validates `coinCost >= 1`<br>&nbsp;&nbsp;// Curators set value in UC-22 |
+| (4) | BR-18-5 | **Guest Redirect:**<br>On access: `AuthService.isAuthenticated(request)`<br>&nbsp;&nbsp;if not authenticated: HTTP 401<br>&nbsp;&nbsp;→ `RedirectService.redirectToSignIn('/novels/[slug]/chapters/[number]')` |
+| (5) | BR-18-6 | **Subscription Bypass:**<br>On check: `SubscriptionRepository.findActive(userId, { now })`<br>&nbsp;&nbsp;if active subscription: `isLocked = false`<br>&nbsp;&nbsp;// Lock overlay never shown; no coins deducted |
 
 \pagebreak
 
@@ -889,10 +889,10 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Display name required | BR-19-1 | Display name is required. Length: 1–100 characters. Cannot be blank. Display MSG-014 if invalid. |
-| Bio optional | BR-19-2 | Bio is optional. Maximum 300 characters. Display a character counter below the textarea. |
-| Email is immutable | BR-19-3 | The email field is read-only (HTML `disabled`). The API endpoint ignores any `email` field in the request body. |
-| Protected route | BR-19-4 | `/settings` is a protected route. Unauthenticated requests are redirected to `/sign-in?callbackURL=/settings`. |
+| (7), (8) | BR-19-1 | **Display Name Validation:**<br>On submit: `validateDisplayName(name)` — required, 1–100 chars, non-blank<br>&nbsp;&nbsp;if valid: `UserRepository.update({ name })`<br>&nbsp;&nbsp;else: `MessageService.show(MSG-014)`, abort — `UserRepository.update()` not called |
+| (5), (6), (7) | BR-19-2 | **Bio Optional:**<br>On input: `LiveCounterService.update(bio.length, 300)` renders `"{n}/300"` on keystrokes<br>&nbsp;&nbsp;On submit: `validateBio(bio)` — nullable; max 300 chars<br>&nbsp;&nbsp;if `bio.length > 300`: server returns validation error |
+| (4), (8) | BR-19-3 | **Email is Immutable:**<br>On render: email field rendered as `<input disabled>`<br>&nbsp;&nbsp;On submit: API payload is `UserRepository.update({ name, bio })`<br>&nbsp;&nbsp;// `email` key explicitly omitted — ignored if present in request body |
+| (2) | BR-19-4 | **Protected Route:**<br>On navigate: `MiddlewareService.protect('/settings')`<br>&nbsp;&nbsp;if authenticated: render settings<br>&nbsp;&nbsp;else: redirect to `/sign-in?callbackURL=/settings`<br>&nbsp;&nbsp;// Enforced at Next.js middleware before page renders |
 
 \pagebreak
 
@@ -929,12 +929,12 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Current password verification | BR-20-1 | The submitted current password must match the stored bcrypt hash. If not, display MSG-007. |
-| Confirmation match | BR-20-2 | New password and confirm password must be identical. |
-| Minimum length | BR-20-3 | New password must be at least 8 characters. |
-| No password reuse | BR-20-4 | New password must not be identical to the current password. |
-| Google account exclusion | BR-20-5 | Users who registered exclusively via Google OAuth (no password) do not see the "Đổi mật khẩu" section. The form is conditionally rendered on the server based on whether the account has a password credential. |
-| Session invalidation | BR-20-6 | After a successful password change, all `sessions` rows for the user except the current session ID are deleted, forcing re-authentication on other devices. |
+| (5) | BR-20-1 | **Current Password Verification:**<br>On submit: `AuthService.verifyPassword(currentPassword, user.passwordHash)` — bcrypt compare<br>&nbsp;&nbsp;if match: proceed to new password checks<br>&nbsp;&nbsp;else: `MessageService.show(MSG-007)`, halt — `UserRepository.update()` never reached |
+| (7) | BR-20-2 | **Confirmation Match:**<br>On validate: `validateConfirmPassword(newPassword, confirmPassword)`<br>&nbsp;&nbsp;// Checks: `newPassword === confirmPassword`<br>&nbsp;&nbsp;if mismatch: `MessageService.show(MSG-016)`, halt |
+| (6) | BR-20-3 | **Minimum Length:**<br>On validate: `validatePassword(newPassword)`<br>&nbsp;&nbsp;// Checks: `newPassword.length >= 8`<br>&nbsp;&nbsp;if too short: `MessageService.show(MSG-015)`, halt |
+| (6) | BR-20-4 | **No Password Reuse:**<br>On check: `AuthService.isDifferentPassword(newPassword, user.passwordHash)` — bcrypt compare must return false<br>&nbsp;&nbsp;if same as current: `MessageService.show(MSG-017)`, halt |
+| (1), (2) | BR-20-5 | **Google Account Exclusion:**<br>On render: `UserRepository.hasPassword(userId)` — checks `passwordHash IS NOT NULL`<br>&nbsp;&nbsp;if false: "Đổi mật khẩu" section hidden in Server Component<br>&nbsp;&nbsp;if direct API call: HTTP 403 |
+| (10) | BR-20-6 | **Session Invalidation:**<br>On success: `SessionRepository.deleteAllExcept(userId, currentSessionId)`<br>&nbsp;&nbsp;// Other devices forced to re-authenticate on next request |
 
 \pagebreak
 
@@ -973,12 +973,12 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Required fields | BR-21-1 | Title (1–500 characters), original language (ZH / KO / JA / EN / VI), and status (ONGOING / COMPLETED / HIATUS / DROPPED) are required. |
-| Slug format | BR-21-2 | Slug must match `^[a-z0-9]+(?:-[a-z0-9]+)*$`. Uniqueness is enforced at the database level by a unique index. |
-| Auto-slug | BR-21-3 | If the curator does not provide a slug, the system auto-generates one from the title using Vietnamese transliteration (removing diacritics, replacing spaces with hyphens, lowercasing). |
-| Cover image constraints | BR-21-4 | Accepted formats: JPEG, PNG, WebP. Maximum file size: 5 MB. The image is stored on Cloudinary; only the URL is in the database. |
-| Genre limit | BR-21-5 | A novel may be associated with a maximum of 5 genres. |
-| CMS access control | BR-21-6 | Middleware verifies `role = curator` or `role = admin` on all `/curator/**` routes. Readers receive HTTP 403. |
+| (9) | BR-21-1 | **Required Fields Validation:**<br>On submit: `validateNovelForm({ title, language, status })`<br>&nbsp;&nbsp;// Checks: title 1–500 chars; language in `['ZH','KO','JA','EN','VI']`; status in `['ONGOING','COMPLETED','HIATUS','DROPPED']`<br>&nbsp;&nbsp;if invalid: field-level errors displayed — `NovelRepository.upsert()` not called |
+| (10), (11) | BR-21-2 | **Slug Format and Uniqueness:**<br>On validate: `SlugValidator.validate(slug)` — must match `/^[a-z0-9]+(?:-[a-z0-9]+)*$/`<br>&nbsp;&nbsp;On check: `NovelRepository.findBySlug(slug)`<br>&nbsp;&nbsp;if collision: `SlugService.appendSuffix(slug, n)` tries `slug-2`, `slug-3`…<br>&nbsp;&nbsp;// DB unique index as final guard |
+| (10) | BR-21-3 | **Auto-Slug:**<br>On blank slug: `SlugService.generate(title)`<br>&nbsp;&nbsp;// `vietnameseToLatin(title).toLowerCase().replace(/[^a-z0-9]+/g, '-')`<br>&nbsp;&nbsp;// Called before `SlugValidator.validate()` |
+| (5), (6), (7) | BR-21-4 | **Cover Image:**<br>On upload: `CloudinaryService.upload(file, { allowedFormats: ['jpg','png','webp'], maxFileSize: 5242880 })`<br>&nbsp;&nbsp;// Only `secure_url` stored<br>&nbsp;&nbsp;→ `NovelRepository.upsert({ coverImageUrl: secure_url })` |
+| (5) | BR-21-5 | **Genre Limit:**<br>On validate: `validateGenres(genres)` — `genres.length <= 5`<br>&nbsp;&nbsp;if > 5: field error "Tối đa 5 thể loại"<br>&nbsp;&nbsp;// `NovelGenreRepository.sync()` only called when valid |
+| (1), (2) | BR-21-6 | **CMS Access Control:**<br>On navigate: `MiddlewareService.verifyRole('/curator/**', ['curator','admin'])`<br>&nbsp;&nbsp;if neither role: HTTP 403, `MessageService.show(MSG-020)` |
 
 \pagebreak
 
@@ -1017,13 +1017,13 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Chapter number uniqueness | BR-22-1 | Chapter numbers must be unique within a novel. A duplicate chapter number returns a validation error. |
-| Word count calculation | BR-22-2 | `wordCount` is calculated server-side after stripping HTML tags. It is not user-editable. |
-| Draft visibility | BR-22-3 | Chapters with `publishedAt IS NULL` are drafts and invisible to all readers (Guest, Reader). They are visible only to curators and admins in the CMS. |
-| Scheduled chapters | BR-22-4 | A chapter with a future `publishedAt` is treated as a draft until the timestamp passes. The reader-facing query filters on `publishedAt <= now()`. |
-| VIP flag | BR-22-5 | `isVip` can only be set to `true` by a curator or admin. Readers cannot manipulate this flag. |
-| Chapter count synchronization | BR-22-6 | `novels.totalChapters` reflects the count of all published chapters. It is updated atomically whenever a chapter transitions between draft and published states. |
-| Content safety | BR-22-7 | Chapter content is stored as HTML. On render, it is sanitized using an allowlist of safe HTML tags to prevent XSS. |
+| (8) | BR-22-1 | **Chapter Number Uniqueness:**<br>On validate: `ChapterRepository.findByNovelAndNumber(novelId, chapterNumber)`<br>&nbsp;&nbsp;if found: validation error displayed<br>&nbsp;&nbsp;// `ChapterRepository.upsert()` not called on conflict |
+| (9) | BR-22-2 | **Word Count Calculation:**<br>On save: `WordCountService.calculate(html)` → `stripHtml(html).split(/\s+/).filter(Boolean).length`<br>&nbsp;&nbsp;// Server-side only; stored in `chapters.wordCount`; not editable by curator |
+| (7), (10) | BR-22-3 | **Draft Visibility:**<br>On fetch: `ChapterRepository.findPublished()` excludes `publishedAt IS NULL`<br>&nbsp;&nbsp;// Drafts visible only in `ChapterRepository.findAllByCurator(novelId)` (CMS only) |
+| (6), (10) | BR-22-4 | **Scheduled Chapters:**<br>On fetch: `ChapterRepository.findPublished()` filters `WHERE publishedAt <= now()`<br>&nbsp;&nbsp;// Future `publishedAt` → treated as draft<br>&nbsp;&nbsp;// No cron needed — query handles it on each request |
+| (5) | BR-22-5 | **VIP Flag:**<br>On API call: `AuthService.verifyRole(userId, ['curator','admin'])`<br>&nbsp;&nbsp;// Enforced in API handler before setting `isVip`<br>&nbsp;&nbsp;if reader attempts direct call: HTTP 403 |
+| (11) | BR-22-6 | **Chapter Count Sync:**<br>On publish: null → timestamp<br>&nbsp;&nbsp;→ `NovelRepository.incrementTotalChapters(novelId)`<br>&nbsp;&nbsp;On unpublish: timestamp → null<br>&nbsp;&nbsp;→ `NovelRepository.decrementTotalChapters(novelId)`<br>&nbsp;&nbsp;// Both atomic with `ChapterRepository.upsert()` |
+| (10) | BR-22-7 | **Content Safety:**<br>On store: `HtmlSanitizer.sanitize(content, allowlist)`<br>&nbsp;&nbsp;// Allowlist: `p, br, strong, em, h1–h3, ul, ol, li, blockquote, hr`<br>&nbsp;&nbsp;On render: `DOMPurify.sanitize(content)` before `dangerouslySetInnerHTML` |
 
 \pagebreak
 
@@ -1069,12 +1069,12 @@ This section documents all functional requirements as structured use cases. Each
 
 | Activity | BR Code | Description |
 |---|---|---|
-| Role escalation | BR-23-1 | Only admins can promote users to `curator` or `admin`. Curators cannot change their own or others' roles. |
-| Self-ban prevention | BR-23-2 | An admin cannot ban their own account. The ban button is hidden/disabled for the admin's own record. |
-| Audit log immutability | BR-23-3 | `audit_logs` rows are insert-only. They cannot be edited or deleted, even by admins. |
-| Audit log coverage | BR-23-4 | Every state-changing admin action (role change, ban, package create/edit/deactivate, content removal) creates an `audit_logs` entry with `adminId`, `action`, `targetType`, `targetId`, `metadata (JSON)`, `createdAt`. |
-| Package deactivation | BR-23-5 | Deactivating a coin package sets `isActive = false`. The package is hidden from `/pricing` but all historical `payments` and `coin_transactions` records referencing it are preserved. |
-| Admin-only access | BR-23-6 | All `/admin/**` routes are protected at the middleware level. Any user without `role = admin` receives HTTP 403. |
+| (2), (5) | BR-23-1 | **Role Escalation:**<br>On role change: `AuthService.verifyRole(requestingUserId, ['admin'])`<br>&nbsp;&nbsp;before: `UserRepository.update(targetUserId, { role })`<br>&nbsp;&nbsp;if not admin: HTTP 403 — button not rendered in curator UI |
+| (5) | BR-23-2 | **Self-Ban Prevention:**<br>On ban: `AdminService.canBan(adminId, targetUserId)`<br>&nbsp;&nbsp;if `adminId === targetUserId`: throw `SELF_BAN_FORBIDDEN`, HTTP 400<br>&nbsp;&nbsp;// Ban button hidden via `isOwnRecord` flag in `UserRowComponent` |
+| (6) | BR-23-3 | **Audit Log Immutability:**<br>On action: `AuditLogRepository.create({ adminId, action, targetType, targetId, metadata, createdAt: now() })`<br>&nbsp;&nbsp;// Insert-only — no `.update()` or `.delete()` methods exist<br>&nbsp;&nbsp;// Entries can never be modified |
+| (5), (6) | BR-23-4 | **Audit Log Coverage:**<br>On any state change: `AuditLogRepository.create({ adminId, action, targetType, targetId, metadata: JSON.stringify(details) })`<br>&nbsp;&nbsp;// Covers: role change, ban/unban, package create/edit/deactivate, content removal |
+| (5) | BR-23-5 | **Package Deactivation:**<br>On deactivate: `CoinPackageRepository.update(id, { isActive: false })`<br>&nbsp;&nbsp;`findActive()` filters `WHERE isActive = true`<br>&nbsp;&nbsp;// Package hidden from `/pricing`; historical records unchanged |
+| (2) | BR-23-6 | **Admin-Only Access:**<br>On navigate: `MiddlewareService.verifyRole('/admin/**', ['admin'])`<br>&nbsp;&nbsp;if not admin: HTTP 403, `MessageService.show(MSG-020)`<br>&nbsp;&nbsp;// Enforced at Next.js middleware before any admin page or API route |
 
 \pagebreak
 

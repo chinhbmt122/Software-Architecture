@@ -71,7 +71,7 @@ skinparam swimlaneWidth 160
 skinparam shadowing false
 `.trim();
 
-// ── 23 PlantUML activity diagrams ─────────────────────────────────────────────
+// ── 23 PlantUML activity diagrams (numbered activities) ───────────────────────
 const DIAGRAMS = {
 
 'uc-01': `@startuml
@@ -79,11 +79,11 @@ ${SKIN}
 title UC-01: Register Account
 |Guest|
 start
-:Open /sign-up page;
-:Enter display name,\\nemail, and password;
-:Submit registration form;
+:(1) Open /sign-up page;
+:(2) Enter display name,\\nemail, and password;
+:(3) Submit registration form;
 |System|
-:Validate all input fields;
+:(4) Validate all input fields;
 if (All fields valid?) then (no)
   :Return inline validation errors;
   |Guest|
@@ -91,17 +91,16 @@ if (All fields valid?) then (no)
   stop
 else (yes)
 endif
-:Query users table by email;
+:(5) Query users table by email;
 if (Email already registered?) then (yes)
-  :Display MSG-001;
+  :(6) Display MSG-001;
   stop
 else (no)
 endif
-:Hash password with bcrypt;
-:INSERT users record\\n(role = reader, coin_balance = 0);
-:Create session record;
-:Set HTTP-only session cookie;
-:Redirect to /;
+:(7) Hash password with bcrypt;
+:(8) INSERT users record\\n(role=reader, coin_balance=0);
+:(9) Create session + set cookie;
+:(10) Redirect to /;
 |Guest|
 :Home page displayed;
 stop
@@ -112,35 +111,31 @@ ${SKIN}
 title UC-02: Sign In with Email
 |Guest|
 start
-:Open /sign-in page;
-:Enter email and password;
-:Submit sign-in form;
+:(1) Open /sign-in page;
+:(2) Enter email and password;
+:(3) Submit sign-in form;
 |System|
-:Query users by email;
+:(4) Query users table by email;
 if (Account found?) then (no)
   :Display MSG-002;
   stop
 else (yes)
 endif
-:Verify password against bcrypt hash;
+:(5) Verify password against bcrypt hash;
 if (Password matches?) then (no)
   :Display MSG-002;
   stop
 else (yes)
 endif
-:Check IP rate limit\\n(10 attempts / 15 min);
+:(6) Check IP rate limit\\n(max 10 attempts / 15 min);
 if (Rate limit exceeded?) then (yes)
-  :Block sign-in request\\nfor 15 minutes;
+  :Block sign-in for 15 minutes;
   stop
 else (no)
 endif
-:Create session record;
-:Set session cookie;
-if (callbackURL present\\nand same-origin?) then (yes)
-  :Redirect to callbackURL;
-else (no)
-  :Redirect to /;
-endif
+:(7) Create session record;
+:(8) Set session cookie;
+:(9) Redirect to callbackURL or /;
 |Guest|
 :Authenticated page loaded;
 stop
@@ -151,26 +146,26 @@ ${SKIN}
 title UC-03: Sign In with Google
 |Guest|
 start
-:Click "Continue with Google";
+:(1) Click "Tiep tuc voi Google";
 |System|
-:Build OAuth authorization URL;
-:Redirect guest to Google;
+:(2) Build OAuth authorization URL;
+:(3) Redirect guest to Google;
 |Google OAuth|
-:Display consent screen;
+:(4) Display consent screen;
 |Guest|
-:Grant permission;
+:(5) Grant permission;
 |Google OAuth|
-:Return authorization code\\nvia callback redirect;
+:(6) Return authorization code\\nvia callback redirect;
 |System|
-:Exchange code for access token;
-:Retrieve Google profile\\n(subject ID, email, name);
-:Search account by\\nGoogle subject ID;
+:(7) Exchange code for access token;
+:(8) Retrieve Google profile\\n(subject ID, email, name);
+:(9) Search account by Google subject ID;
 if (Account found by subject ID?) then (no)
-  :Search account by\\nemail address;
+  :(10) Search account by email address;
   if (Email account exists?) then (yes)
-    :Link Google identity\\nto existing account;
+    :Link Google identity to existing account;
   else (no)
-    :CREATE new users record\\n(role = reader, coin_balance = 0,\\nname from Google profile);
+    :(11) CREATE users record\\n(role=reader, coin_balance=0,\\nname from Google profile);
   endif
 else (yes)
 endif
@@ -187,13 +182,14 @@ ${SKIN}
 title UC-04: Sign Out
 |User|
 start
-:Open user dropdown menu;
-:Click "Dang xuat";
+:(1) Open user dropdown menu;
+:(2) Click "Dang xuat";
 |System|
-:Extract session token\\nfrom cookie;
-:DELETE session record\\nfrom sessions table;
-:Set cookie Max-Age = 0\\n(clears from browser);
-:Redirect to /;
+:(3) Send POST to sign-out API endpoint;
+:(4) Extract session token from cookie;
+:(5) DELETE session record from sessions table;
+:(6) Set cookie Max-Age = 0\\n(clear from browser);
+:(7) Redirect to /;
 |User|
 :Home page shown (as Guest);
 stop
@@ -204,50 +200,51 @@ ${SKIN}
 title UC-05: Reset Password
 |User|
 start
-:Click "Quen mat khau?"\\non sign-in page;
-:Enter registered email;
-:Submit;
+:(1) Click "Quen mat khau?" on sign-in page;
 |System|
-:Validate email format;
+:(2) Render forgot-password form;
+|User|
+:(3) Enter registered email and submit;
+|System|
+:(4) Validate email format;
 if (Format valid?) then (no)
   :Display MSG-023;
   stop
 else (yes)
 endif
-:Look up account by email;
-:Display neutral MSG-024\\n(always — prevents enumeration);
+:(5) Look up account by email;
+:(6) Display neutral MSG-024\\n(always — prevents enumeration);
 if (Account exists with password?) then (yes)
-  :Generate 32-byte secure reset token;
-  :Store hashed token with\\nexpiry = now + 1 hour;
-  :Send reset email with token link;
+  :(7) Generate 32-byte secure reset token;
+  :(8) Store hashed token\\n(expiry = now + 1 hour);
+  :(9) Send reset email with token link;
 else (no)
   note right: No action taken
 endif
 |User|
-:Receive reset email;
-:Click reset link;
+:(10) Click reset link from email;
 |System|
-:Validate token\\n(exists, not expired, not used);
+:(11) Validate token\\n(exists, not expired, not used);
 if (Token valid?) then (no)
   :Display MSG-025;
   stop
 else (yes)
 endif
-:Render new-password form;
+:(12) Render new-password form;
 |User|
-:Enter and confirm new password;
-:Submit;
+:(13) Enter and confirm new password;
+:(14) Submit new password;
 |System|
-:Validate new password\\n(>= 8 chars, differs from current);
+:(15) Validate new password\\n(>= 8 chars, differs from current);
 if (Valid?) then (no)
   :Show validation error;
   stop
 else (yes)
 endif
-:Hash and store new password;
-:Invalidate reset token;
-:Delete all user sessions;
-:Redirect to /sign-in\\nwith MSG-004;
+:(16) Hash and store new password;
+:(17) Invalidate reset token;
+:(18) Delete all user sessions;
+:Redirect to /sign-in with MSG-004;
 |User|
 :Sign-in page shown;
 stop
@@ -258,21 +255,20 @@ ${SKIN}
 title UC-06: Browse Novel List
 |User|
 start
-:Navigate to /novels\\n(with optional: q, status,\\ngenre, sort, page);
+:(1) Navigate to /novels\\n(optional: q, status, genre, sort, page);
 |System|
-:Parse query parameters;
-:Build DB query with filters;
-:Execute paginated query\\nagainst novels table;
-:Count total matching novels;
+:(2) Parse query parameters;
+:(3) Build DB query with active filters;
+:(4) Execute paginated query\\nagainst novels table (max 30);
+:(5) Count total matching novels;
 if (Novels found?) then (yes)
-  :Render novel grid (max 30/page);
-  :Render pagination controls;
+  :(6) Render novel grid + pagination;
 else (no)
-  :Render empty-state message;
+  :(6) Render empty-state message;
 endif
-:Render filter pills,\\nsearch bar, result count;
+:(7) Render filter pills,\\nsearch bar, result count;
 |User|
-:View novel list;
+:(8) View novel list;
 if (User changes filter or sort?) then (yes)
   |System|
   :Update URL query parameters;
@@ -289,10 +285,11 @@ ${SKIN}
 title UC-07: Search Novels
 |User|
 start
-:Type query in search input;
+:(1) Type query in search input;
 |System|
-:Debounce 300 ms;
-:Update URL param q=<query>;
+:(2) Debounce input 300 ms;
+:(3) Update URL param q=<query>;
+:(4) Send search request to Meilisearch;
 if (Meilisearch available?) then (yes)
   |Meilisearch|
   :Run typo-tolerant search\\non title and synopsis;
@@ -301,14 +298,15 @@ if (Meilisearch available?) then (yes)
 else (no)
   :Fallback: PostgreSQL\\nILIKE search on title;
 endif
+:(5) Evaluate results;
 if (Results found?) then (yes)
-  :Render matched novel grid;
+  :(6) Render matched novel grid;
 else (no)
-  :Render empty state;
+  :(6) Render empty state;
 endif
-:Update result count;
+:(7) Update result count;
 |User|
-:View search results;
+:(8) View search results;
 if (User clears input?) then (yes)
   |System|
   :Remove q from URL;
@@ -324,30 +322,29 @@ ${SKIN}
 title UC-08: Filter Novels
 |User|
 start
-:Click a status pill\\n(e.g. "Hoan thanh");
+:(1) Click a status pill;
 |System|
-if (Pill already active?) then (yes)
-  :Remove status param from URL;
-else (no)
-  :Set status param in URL;
-endif
-:Re-query novels with filter;
-:Highlight active pill;
-:Update result count;
-:Re-render novel grid;
+:(2) Toggle status param in URL;
+:(3) Re-query novels with status filter;
+:(4) Highlight active pill;
+:(5) Update result count;
+:(6) Re-render novel grid;
 |User|
-:View filtered results;
+:(7) View filtered results;
 if (User clicks a genre pill?) then (yes)
   |System|
-  if (Genre pill already active?) then (yes)
-    :Remove genre param from URL;
-  else (no)
-    :Set genre param in URL;
-  endif
-  :Re-query with status AND genre;
-  :Re-render grid and count;
+  :(8) Toggle genre param in URL;
+  :(9) Re-query with status AND genre;
+  :(10) Re-render grid and count;
   |User|
   :View doubly-filtered results;
+else (no)
+endif
+if (User deselects active pill?) then (yes)
+  |System|
+  :Remove param from URL;
+  :Re-query without that filter;
+  |User|
 else (no)
 endif
 stop
@@ -358,34 +355,31 @@ ${SKIN}
 title UC-09: View Novel Detail
 |User|
 start
-:Navigate to /novels/[slug];
+:(1) Navigate to /novels/[slug];
 |System|
-:Fetch novel by slug;
+:(2) Fetch novel by slug;
 if (Novel found?) then (no)
-  :Return 404 page;
+  :(3) Return 404 page;
   stop
 else (yes)
 endif
 fork
-  :Fetch published chapters\\n(publishedAt <= now());
+  :(4) Fetch published chapters\\n(publishedAt <= now());
 fork again
-  :Fetch reading progress\\n(if authenticated);
+  :(5) Fetch reading_progress\\n(if authenticated);
 fork again
-  :Fetch up to 6\\nrecommended novels;
+  :(6) Fetch up to 6\\nrecommended novels;
 fork again
-  :Increment totalViews\\n(fire-and-forget);
+  :(7) Increment totalViews\\n(fire-and-forget);
 end fork
-:Render hero section\\n(cover, badges, stats);
-if (Has chapters?) then (no)
-  :CTA = "Chua co chuong" (disabled);
-else (yes)
-  if (Has reading progress?) then (yes)
-    :CTA = "Tiep tuc doc" + "Tu dau";
-  else (no)
-    :CTA = "Doc tu dau";
-  endif
-endif
-:Render body: synopsis, tags,\\nreviews, chapter list,\\nrecommendations;
+:(8) Render hero section\\n(cover, badges, stats, CTAs);
+:(9) Render body:\\nsynopsis, tags, reviews,\\nchapter list, recommendations;
+note right
+  CTA logic:
+  No chapters → disabled
+  No progress → "Doc tu dau"
+  Has progress → "Tiep tuc doc"
+end note
 |User|
 :Novel detail page displayed;
 stop
@@ -396,17 +390,18 @@ ${SKIN}
 title UC-10: Read Chapter
 |User|
 start
-:Navigate to\\n/novels/[slug]/chapters/[number];
+:(1) Navigate to\\n/novels/[slug]/chapters/[number];
 |System|
-:Fetch chapter by novel ID\\nand chapter number;
+:(2) Fetch chapter by novelId + number;
 if (Chapter published?) then (no)
-  :Return 404 page;
+  :(3) Return 404 page;
   stop
 else (yes)
 endif
+:(4) Evaluate VIP access;
 if (chapter.isVip = true?) then (yes)
   if (User authenticated?) then (no)
-    :isLocked = true\\n(guest cannot read VIP);
+    :isLocked = true (guest);
   else (yes)
     :Check chapter_unlocks\\nand subscriptions;
     if (Access granted?) then (yes)
@@ -418,17 +413,17 @@ if (chapter.isVip = true?) then (yes)
 else (no)
   :isLocked = false;
 endif
+:(5) Strip or include content\\nbased on isLocked;
 if (isLocked = true?) then (yes)
-  :Strip content from response;
   :Render lock overlay\\n(coin cost, sign-in prompt);
 else (no)
-  :Include full content;
-  :Render ChapterReader;
+  :(6) Render ChapterReader\\nwith full content;
 endif
 if (User authenticated?) then (yes)
-  :Upsert reading_progress\\n(only if chapterNumber increases);
+  :(7) Upsert reading_progress\\n(only if chapterNumber increases);
 else (no)
 endif
+:(8) Display estimated reading time;
 |User|
 :Chapter page displayed;
 stop
@@ -439,29 +434,29 @@ ${SKIN}
 title UC-11: Adjust Reader Settings
 |Reader|
 start
-:Open chapter reader page;
+:(1) Open chapter reader page;
 |System|
-:Read settings from localStorage\\nor apply defaults;
-:Apply settings to reading area;
+:(2) Read settings from localStorage\\nor apply defaults;
+:(3) Apply settings to reading area;
 |Reader|
-:Click gear icon;
-:Settings sheet opens (right side);
+:(4) Click gear icon;
+:(5) Settings sheet opens (right side);
 fork
-  :Select theme\\n(Sang / Toi / Dem);
+  :(6) Select theme (Sang/Toi/Dem);
 fork again
-  :Select font family\\n(Serif / Sans);
+  :(6) Select font family (Serif/Sans);
 fork again
-  :Adjust font size\\n(14-26 px);
+  :(6) Adjust font size (14–26 px);
 fork again
-  :Adjust line height\\n(1.4-2.2x);
+  :(6) Adjust line height (1.4–2.2);
 fork again
-  :Adjust content width\\n(480-900 px);
+  :(6) Adjust content width (480–900 px);
 end fork
 |System|
-:Apply change to reading area\\n(real-time, no save button);
-:Write settings JSON to\\nlocalStorage["reader-settings"];
+:(7) Apply change to reading area\\n(real-time, no save button);
+:(8) Serialize and write settings\\nto localStorage["reader-settings"];
 |Reader|
-:Reading area updates immediately;
+:(9) Reading area updates immediately;
 note right
   Settings persist on same
   browser/device only.
@@ -475,21 +470,23 @@ ${SKIN}
 title UC-12: Follow Novel
 |Reader|
 start
-:Click "Theo doi" or\\n"Dang theo doi" button;
+:(1) View novel detail page;
+:(2) Follow button shows current state\\n("Theo doi" or "Dang theo doi");
+:(3) Click follow/unfollow button;
 if (User authenticated?) then (no)
   |System|
-  :Redirect to\\n/sign-in?callbackURL=...;
+  :Redirect to /sign-in?callbackURL=...;
   stop
 else (yes)
 endif
 |System|
-:Optimistically update\\nbutton state in UI;
-:Check existing\\nnovel_follows record;
+:(4) Optimistically update button state in UI;
+:(5) Check existing novel_follows record;
 if (Currently following?) then (yes)
-  :DELETE novel_follows\\n(userId, novelId);
+  :(6) DELETE novel_follows (userId, novelId);
   :Update button → "Theo doi";
 else (no)
-  :INSERT novel_follows\\n(userId, novelId, createdAt);
+  :(6) INSERT novel_follows\\n(userId, novelId, createdAt);
   :Update button → "Dang theo doi";
 endif
 note right
@@ -506,26 +503,22 @@ ${SKIN}
 title UC-13: Track Reading Progress
 |Reader|
 start
-:Open any chapter page\\n(authenticated);
+:(1) Open any chapter page\\n(authenticated);
 |System|
-:Chapter rendered (UC-10);
-:Query reading_progress\\nfor (userId, novelId);
+:(2) Chapter rendered (UC-10);
+:(3) Query reading_progress\\nfor (userId, novelId);
 if (Record exists?) then (yes)
+  :(4) Compare new vs stored chapter number;
   if (newChapterNumber >=\\nstoredChapterNumber?) then (yes)
-    :UPDATE reading_progress\\nSET chapterId = new,\\nupdatedAt = now();
+    :UPDATE reading_progress\\nSET chapterId = new, updatedAt = now();
   else (no)
-    note right: No update; revisiting\\nearlier chapter
+    note right: No update — revisiting\\nearlier chapter
   endif
 else (no)
-  :INSERT reading_progress\\n(userId, novelId, chapterId,\\nupdatedAt = now());
+  :(4) INSERT reading_progress\\n(userId, novelId, chapterId, updatedAt);
 endif
-note right
-  Progress is used for:
-  1. "Tiep tuc doc" CTA
-     on novel detail page.
-  2. Progress bar in library
-     (lastChapter / totalChapters).
-end note
+:(5) CTA on novel detail page:\\n"Tiep tuc doc chuong [N]";
+:(6) Progress bar in library:\\n(lastChapter / totalChapters) x 100%;
 |Reader|
 :Progress silently recorded;
 stop
@@ -536,28 +529,30 @@ ${SKIN}
 title UC-14: View Library
 |Reader|
 start
-:Navigate to /library\\nor click "Tu sach";
+:(1) Navigate to /library;
 |System|
-:Check authentication;
+:(2) Check authentication;
 if (User authenticated?) then (no)
-  :Redirect to\\n/sign-in?callbackURL=/library;
+  :Redirect to /sign-in?callbackURL=/library;
   stop
 else (yes)
 endif
-:Fetch novel_follows\\njoined with novels;
-:Join with reading_progress\\n(last chapter per novel);
-:Render page with tabs:\\nDang doc / Hoan thanh / Tat ca;
-if (Library empty?) then (yes)
-  :Render empty state\\n(icon + message +\\n"Kham pha truyen" link);
+:(3) Fetch novel_follows joined with novels;
+:(4) Join with reading_progress\\n(last chapter per novel);
+:(5) Parse tab param (default: "all");
+:(6) Filter novels by tab:\\n- "reading": lastChapter < totalChapters\\n- "completed": lastChapter >= totalChapters\\n- "all": no filter;
+if (Library empty for tab?) then (yes)
+  :(7) Render empty state\\n(icon + message + "Kham pha truyen" link);
 else (no)
-  :Render novel grid\\nwith progress bars;
+  :(7) Render novel grid\\nwith progress bars;
 endif
+:(8) Render three filter tabs;
 |Reader|
-:Library displayed;
+:(9) View library;
 if (Click filter tab?) then (yes)
   |System|
-  :Update URL tab param;
-  :Re-filter by progress status;
+  :(10) Update URL tab param;
+  :Re-filter novels;
   :Re-render grid;
   |Reader|
 else (no)
@@ -570,33 +565,33 @@ ${SKIN}
 title UC-15: Write Review
 |Reader|
 start
-:Click "Viet danh gia"\\non novel detail page;
+:(1) Click "Viet danh gia"\\non novel detail page;
 |System|
-:Check authentication;
+:(2) Check authentication;
 if (User authenticated?) then (no)
-  :Redirect to /sign-in;
+  :Show sign-in prompt;
   stop
 else (yes)
 endif
-:Check for existing review\\n(userId, novelId);
+:(3) Check for existing review (userId, novelId);
 if (Review already exists?) then (yes)
-  :Pre-populate form\\nwith existing rating + text;
+  :(4) Pre-populate form with\\nexisting rating and text;
 else (no)
-  :Render empty review form;
+  :(4) Render empty review form;
 endif
 |Reader|
-:Select star rating (1-5);
-:Optionally type review text;
-:Click "Gui danh gia";
+:(5) Select star rating (1–5);
+:(6) Optionally type review text;
+:(7) Click "Gui danh gia";
 |System|
-:Validate:\\n- Rating required (1-5)\\n- Text <= 2000 chars;
+:(8) Validate:\\n- Rating required (1–5)\\n- Text <= 2000 chars;
 if (Valid?) then (no)
   :Show validation error;
   stop
 else (yes)
 endif
-:UPSERT reviews record\\n(userId, novelId, rating, body);
-:Recalculate novels.avgRating\\n= AVG(rating) for this novel;
+:(9) UPSERT reviews record\\n(userId, novelId, rating, body);
+:(10) Recalculate novels.avgRating\\n= AVG(rating) for this novel;
 |Reader|
 :Reviews section refreshes;
 stop
@@ -607,9 +602,9 @@ ${SKIN}
 title UC-16: Leave Comment
 |Reader|
 start
-:Click comment input\\non novel detail page;
+:(1) Click comment input\\non novel detail page;
 |System|
-:Check authentication;
+:(2) Check authentication;
 if (User authenticated?) then (no)
   :Show sign-in prompt;
   stop
@@ -617,26 +612,28 @@ else (yes)
 endif
 |Reader|
 if (Posting a reply?) then (yes)
-  :Click "Tra loi" on comment;
-  :Type in indented reply input;
+  :(3) Click "Tra loi" on a comment;
+  :(4) Type in indented reply input;
 else (no)
-  :Type in main comment input;
+  :(3) Type in main comment input;
 endif
-:Click "Gui";
+:(5) Click "Gui";
 |System|
-:Validate:\\n- Content non-empty\\n- Length <= 1000 chars;
+:(6) Validate:\\n- Content non-empty\\n- Length <= 1000 chars;
 if (Valid?) then (no)
   :Show validation error;
   stop
 else (yes)
 endif
 if (Is a reply?) then (yes)
-  :INSERT comments\\n(parentId = parent comment ID);
+  :(7) INSERT comments\\n(parentId = parent comment ID);
 else (no)
-  :INSERT comments\\n(parentId = null);
+  :(7) INSERT comments (parentId = null);
 endif
+:(8) Sort: top-level newest-first,\\nreplies oldest-first;
 |Reader|
-:Comment appears immediately;
+:(9) Comment appears immediately;
+:(10) Display comment in list;
 stop
 @enduml`,
 
@@ -645,45 +642,45 @@ ${SKIN}
 title UC-17: Purchase Coins
 |Reader|
 start
-:Navigate to /pricing;
-:Select a coin package;
-:Click "Mua N xu";
+:(1) Navigate to /pricing;
+:(2) View active coin packages;
+:(3) Select package and click "Mua N xu";
 |System|
-:Check authentication;
+:(4) Check authentication;
 if (Authenticated?) then (no)
   :Show sign-in prompt;
   stop
 else (yes)
 endif
-:INSERT payments record\\n(status = PENDING, orderId);
-:Call MoMo createPayment API;
+:(5) INSERT payments record\\n(status=PENDING, orderId, userId, packageId);
+:(6) Call MoMo createPayment API;
 if (MoMo API success?) then (no)
   :Show payment error;
   stop
 else (yes)
 endif
-:Receive payUrl;
-:Redirect reader to MoMo;
+:(7) Receive payUrl from MoMo;
+:(8) Redirect reader to MoMo payment page;
 |Reader|
-:Complete payment on MoMo;
+:(9) Complete payment on MoMo interface;
 |MoMo Gateway|
-:POST webhook to\\n/api/payments/momo/webhook;
+:(10) POST webhook to\\n/api/payments/momo/webhook;
 |System|
-:Verify HMAC-SHA256 signature;
+:(11) Verify HMAC-SHA256 signature;
 if (Signature valid?) then (no)
   :Return HTTP 400;
   stop
 else (yes)
 endif
-if (resultCode = 0 (success)?) then (yes)
-  :BEGIN transaction;
+if (resultCode = 0?) then (yes)
+  :(12) BEGIN transaction;
   :UPDATE payments SET COMPLETED;
   :INCREMENT users.coin_balance;
   :INSERT coin_transactions (CREDIT);
   :COMMIT transaction;
-  :Return HTTP 200;
+  :(13) Return HTTP 200 to MoMo;
   |Reader|
-  :Redirect to /payments/success;
+  :(14) Redirect to /payments/success;
   :Show MSG-011;
 else (no)
   |System|
@@ -700,35 +697,35 @@ ${SKIN}
 title UC-18: Unlock VIP Chapter
 |Reader|
 start
-:View locked VIP chapter;
-:Overlay shows: coin cost,\\ncurrent balance;
-:Click "Mo khoa";
+:(1) View locked VIP chapter;
+:(2) Overlay shows: coin cost,\\ncurrent balance;
+:(3) Click "Mo khoa";
 |System|
-:Check authentication;
+:(4) Check authentication;
 if (Authenticated?) then (no)
   :Return HTTP 401;
   stop
 else (yes)
 endif
-:Re-verify chapter is\\nstill locked for this user;
+:(5) Re-verify chapter is still locked for user;
 if (Already unlocked?) then (yes)
   :Reload chapter (no charge);
   stop
 else (no)
 endif
-:Check coin balance;
-if (coin_balance >= coinCost?) then (no)
+:(6) Check coin_balance >= coinCost;
+if (Balance sufficient?) then (no)
   :Display MSG-005;
   :Show link to /pricing;
   stop
 else (yes)
 endif
-:BEGIN transaction;
+:(7) BEGIN transaction;
 :INSERT chapter_unlocks\\n(userId, chapterId, coinSpent);
 :UPDATE users.coin_balance -= coinCost;
 :INSERT coin_transactions (DEBIT);
 :COMMIT transaction;
-:Reload chapter with full content;
+:(8) Reload chapter with full content;
 |Reader|
 :Chapter unlocked;
 :Show MSG-013;
@@ -740,34 +737,34 @@ ${SKIN}
 title UC-19: Update Profile
 |User|
 start
-:Navigate to /settings;
+:(1) Navigate to /settings;
 |System|
-:Check authentication;
+:(2) Check authentication;
 if (Authenticated?) then (no)
-  :Redirect to /sign-in;
+  :Redirect to /sign-in?callbackURL=/settings;
   stop
 else (yes)
 endif
-:Fetch users record;
-:Render profile form\\n(name, bio pre-filled;\\nemail read-only);
+:(3) Fetch users record;
+:(4) Render profile form\\n(name, bio pre-filled;\\nemail read-only);
 |User|
-:Edit display name and/or bio;
+:(5) Edit display name and/or bio;
 note right
   Live character counter:
   e.g. "47/300" below bio
 end note
-:Click "Luu thay doi";
+:(6) Click "Luu thay doi";
 |System|
-:Validate server-side:\\n- name: 1-100 chars, required\\n- bio: 0-300 chars, optional;
+:(7) Validate server-side:\\n- name: 1–100 chars, required\\n- bio: 0–300 chars, optional;
 if (Valid?) then (no)
   :Show validation error;
   stop
 else (yes)
 endif
-:UPDATE users SET name, bio;
-:Display MSG-008 (saved);
+:(8) UPDATE users SET name, bio;
+:(9) Display MSG-008 (saved);
 |User|
-:Profile updated;
+:(10) Profile updated;
 stop
 @enduml`,
 
@@ -776,39 +773,40 @@ ${SKIN}
 title UC-20: Change Password
 |User|
 start
-:Navigate to /settings\\npassword section;
+:(1) Navigate to /settings password section;
 |System|
-:Check if account has password\\n(not Google-only);
+:(2) Check if account has password\\n(not Google-only);
 if (Email/password account?) then (no)
   :Hide "Doi mat khau" section;
   stop
 else (yes)
 endif
 |User|
-:Enter current password,\\nnew password,\\nconfirm new password;
-:Click "Doi mat khau";
+:(3) Enter current password,\\nnew password,\\nconfirm new password;
+:(4) Click "Doi mat khau";
 |System|
-:Verify current password\\nagainst bcrypt hash;
+:(5) Verify current password against bcrypt hash;
 if (Current password correct?) then (no)
   :Display MSG-007;
   stop
 else (yes)
 endif
-:Validate new password:\\n>= 8 chars, differs from current;
+:(6) Validate new password:\\n>= 8 chars, differs from current;
 if (New password valid?) then (no)
   :Show MSG-015 or MSG-017;
   stop
 else (yes)
 endif
-if (New and confirm match?) then (no)
+:(7) Check new and confirm passwords match;
+if (Passwords match?) then (no)
   :Show MSG-016;
   stop
 else (yes)
 endif
-:Hash new password with bcrypt;
-:UPDATE users.passwordHash;
-:DELETE all sessions\\nexcept current session;
-:Display MSG-006 (success);
+:(8) Hash new password with bcrypt;
+:(9) UPDATE users.passwordHash;
+:(10) DELETE all sessions\\nexcept current session;
+:(11) Display MSG-006 (success);
 |User|
 :Password changed;
 note right
@@ -823,48 +821,44 @@ ${SKIN}
 title UC-21: Curator Manage Novel
 |Curator|
 start
-:Navigate to\\n/curator/novels/new\\nor .../[id]/edit;
+:(1) Navigate to /curator/novels/new\\nor .../[id]/edit;
 |System|
-:Verify role = curator or admin;
+:(2) Verify role = curator or admin;
 if (Authorized?) then (no)
   :Return HTTP 403;
   stop
 else (yes)
 endif
-:Render novel form\\n(pre-filled for edit mode);
+:(3) Render novel form\\n(pre-filled for edit mode);
 |Curator|
-:Fill in title,\\noriginal language, status;
-:Optionally: synopsis,\\ngenres (max 5), tags;
+:(4) Fill in title,\\noriginal language, status;
+:(5) Optionally: synopsis,\\ngenres (max 5), tags;
 if (Upload cover image?) then (yes)
-  :Open Cloudinary upload widget;
+  :(6) Open Cloudinary upload widget;
   |Cloudinary|
   :Upload image directly to CDN;
   :Return secure_url;
   |System|
-  :Store coverImageUrl;
+  :(7) Store coverImageUrl;
   |Curator|
 else (no)
 endif
-:Click "Luu";
+:(8) Click "Luu";
 |System|
-:Validate all fields server-side;
+:(9) Validate all fields server-side;
 if (Valid?) then (no)
   :Show field-level errors;
   stop
 else (yes)
 endif
-if (Slug not provided?) then (yes)
-  :Auto-generate slug\\n(transliterate, lowercase, hyphens);
-else (no)
-endif
-:Check slug uniqueness;
+:(10) Auto-generate slug if not provided;
+:(11) Check slug uniqueness;
 if (Collision?) then (yes)
   :Append numeric suffix;
 else (no)
 endif
-:UPSERT novels record;
-:Sync novel_genres (delete + insert);
-:Sync novel_tags (delete + insert);
+:(12) UPSERT novels record;
+:(13) Sync novel_genres and novel_tags;
 :Redirect to novel detail;
 |Curator|
 :Novel saved;
@@ -876,33 +870,35 @@ ${SKIN}
 title UC-22: Curator Manage Chapter
 |Curator|
 start
-:Navigate to chapter editor\\n(/curator/novels/[id]/chapters/new\\nor .../[chId]/edit);
+:(1) Navigate to chapter editor;
 |System|
-:Verify role = curator or admin;
+:(2) Verify role = curator or admin;
 if (Authorized?) then (no)
   :Return HTTP 403;
   stop
 else (yes)
 endif
-:Render chapter form\\n(pre-filled for edit mode);
+:(3) Render chapter form\\n(pre-filled for edit mode);
 |Curator|
-:Enter chapter number,\\ntitle, and content;
-:Optionally set VIP flag\\nand coin cost;
-:Optionally set\\nscheduled publishedAt;
+:(4) Enter chapter number, title, content;
+:(5) Optionally set VIP flag and coin cost;
+:(6) Optionally set scheduled publishedAt;
+:(7) Click "Luu ban nhap" or "Xuat ban";
 if (Click "Luu ban nhap"?) then (yes)
-  :publishedAt = null;
+  :publishedAt = null (draft);
 else (click "Xuat ban")
-  :publishedAt = now()\\nor scheduled date;
+  :publishedAt = now() or scheduled date;
 endif
 |System|
-:Validate:\\n- Chapter number unique in novel\\n- Title non-empty;
+:(8) Validate:\\n- Chapter number unique in novel\\n- Title non-empty;
 if (Valid?) then (no)
   :Show validation errors;
   stop
 else (yes)
 endif
-:Calculate wordCount\\n(strip HTML, count tokens);
-:UPSERT chapters record;
+:(9) Calculate wordCount\\n(strip HTML, count tokens);
+:(10) UPSERT chapters record;
+:(11) Update novels.totalChapters;
 if (Transitioning to published?) then (yes)
   :INCREMENT novels.totalChapters;
 else if (Transitioning to draft?) then (yes)
@@ -919,39 +915,40 @@ ${SKIN}
 title UC-23: Admin Manage System
 |Admin|
 start
-:Navigate to /admin;
+:(1) Navigate to /admin;
 |System|
-:Verify role = admin;
+:(2) Verify role = admin;
 if (role = admin?) then (no)
   :Return HTTP 403;
   stop
 else (yes)
 endif
-:Render admin dashboard;
+:(3) Render admin dashboard;
 |Admin|
-:Select management area;
+:(4) Select management area;
 switch (Area)
 case (Users)
-  :View paginated user list;
+  :(5) View paginated user list;
   if (Change role?) then (yes)
     |System|
     :UPDATE users.role;
-    :INSERT audit_logs;
+    :(6) INSERT audit_logs;
   else if (Ban user?) then (yes)
     :Check not self-banning;
-    :UPDATE users banned = true;
+    :UPDATE users.banned = true;
     :Delete all user sessions;
-    :INSERT audit_logs;
+    :(6) INSERT audit_logs;
   else (view only)
   endif
 case (Coin Packages)
+  :(5) View coin package list;
   if (Create / Edit?) then (yes)
     |System|
     :UPSERT coin_packages;
-    :INSERT audit_logs;
+    :(6) INSERT audit_logs;
   else if (Deactivate?) then (yes)
     :UPDATE isActive = false;
-    :INSERT audit_logs;
+    :(6) INSERT audit_logs;
   else (view only)
   endif
 case (Audit Logs)
@@ -990,6 +987,21 @@ const FIGURE_REPLACEMENTS = [
   ['*[Figure 22: UC-22 Curator Manage Chapter Activity Flow]*','![Figure 22: UC-22 Curator Manage Chapter Activity Flow](figures/uc-22-activity.png){ width=6in }'],
   ['*[Figure 23: UC-23 Admin Manage System Activity Flow]*',   '![Figure 23: UC-23 Admin Manage System Activity Flow](figures/uc-23-activity.png){ width=6in }'],
 ];
+
+// ── Pandoc path resolution ─────────────────────────────────────────────────────
+function findPandoc() {
+  const candidates = [
+    'pandoc',
+    process.env.PANDOC_PATH,
+    `${process.env.TEMP}\\pandoc-bin\\pandoc-3.6.4\\pandoc.exe`,
+    `${process.env.LOCALAPPDATA}\\Pandoc\\pandoc.exe`,
+    'C:\\Program Files\\Pandoc\\pandoc.exe',
+  ].filter(Boolean);
+  for (const p of candidates) {
+    try { execSync(`"${p}" --version`, { stdio: 'ignore' }); return p; } catch {}
+  }
+  return null;
+}
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 async function main() {
@@ -1039,15 +1051,20 @@ async function main() {
 
   // ── Re-run Pandoc ──────────────────────────────────────────────────────────
   console.log('\nRegenerating SRS.docx ...');
-  try {
-    execSync(
-      `pandoc "${srsMdPath}" -o "${srsDocxPath}" --toc --toc-depth=4 --standalone --resource-path "${docsDir}"`,
-      { stdio: 'inherit', env: { ...process.env } }
-    );
-    const size = fs.statSync(srsDocxPath).size;
-    console.log(`  SRS.docx updated (${(size/1024).toFixed(0)} KB)`);
-  } catch (e) {
-    console.error('  Pandoc failed:', e.message);
+  const pandoc = findPandoc();
+  if (!pandoc) {
+    console.error('  Pandoc not found — skipping DOCX generation. Set PANDOC_PATH env var.');
+  } else {
+    try {
+      execSync(
+        `"${pandoc}" "${srsMdPath}" -o "${srsDocxPath}" --toc --toc-depth=4 --standalone --resource-path "${docsDir}"`,
+        { stdio: 'inherit', env: { ...process.env } }
+      );
+      const size = fs.statSync(srsDocxPath).size;
+      console.log(`  SRS.docx updated (${(size/1024).toFixed(0)} KB)`);
+    } catch (e) {
+      console.error('  Pandoc failed:', e.message);
+    }
   }
 
   console.log(`\nDone. ${failed} diagram(s) failed.`);
