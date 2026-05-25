@@ -4,10 +4,14 @@ import { db } from "./db"
 import { accounts, sessions, users, verifications } from "@/db/schema"
 
 const productionUrl = process.env.BETTER_AUTH_URL
+// VERCEL_URL is auto-set by Vercel to the current deployment's host (no https://)
+const deploymentUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined
+
+const trustedOrigins = [productionUrl, deploymentUrl].filter(Boolean) as string[]
 
 export const auth = betterAuth({
-  baseURL: productionUrl,
-  trustedOrigins: productionUrl ? [productionUrl] : [],
+  baseURL: productionUrl ?? deploymentUrl,
+  trustedOrigins,
   database: drizzleAdapter(db, {
     provider: "pg",
     schema: {
