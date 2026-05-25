@@ -1,6 +1,5 @@
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
-import { dash } from "@better-auth/infra"
 import { db } from "./db"
 import { accounts, sessions, users, verifications } from "@/db/schema"
 
@@ -40,7 +39,6 @@ export const auth = betterAuth({
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
     },
   },
-  plugins: [dash()],
   user: {
     additionalFields: {
       role: {
