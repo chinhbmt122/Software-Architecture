@@ -3,8 +3,11 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { db } from "./db"
 import { accounts, sessions, users, verifications } from "@/db/schema"
 
+const productionUrl = process.env.BETTER_AUTH_URL
+
 export const auth = betterAuth({
-  baseURL: process.env.BETTER_AUTH_URL,
+  baseURL: productionUrl,
+  trustedOrigins: productionUrl ? [productionUrl] : [],
   database: drizzleAdapter(db, {
     provider: "pg",
     schema: {
