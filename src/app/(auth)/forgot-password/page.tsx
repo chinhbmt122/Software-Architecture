@@ -24,18 +24,14 @@ export default function ForgotPasswordPage() {
     e.preventDefault()
     setLoading(true)
     setError("")
-    const res = await fetch("/api/auth/request-password-reset", {
+    await fetch("/api/auth/request-password-reset", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, redirectTo: `${window.location.origin}/reset-password` }),
-    })
+    }).catch(() => {})
     setLoading(false)
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}))
-      setError((data as { message?: string }).message ?? "Có lỗi xảy ra")
-    } else {
-      setSent(true)
-    }
+    // Always show confirmation regardless of outcome (BR-05-1: no email enumeration)
+    setSent(true)
   }
 
   return (

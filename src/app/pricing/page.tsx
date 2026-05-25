@@ -80,10 +80,10 @@ export default async function PricingPage() {
               <p className="text-xl font-semibold">{formatVnd(pkg.priceVnd)}</p>
 
               {session ? (
-                <BuyButton
-                  packageId={pkg.id}
-                  label={`Mua ${totalCoins.toLocaleString()} xu`}
-                />
+                <div className="flex flex-col gap-2">
+                  <BuyButton packageId={pkg.id} method="momo" label="Thanh toán MoMo" />
+                  <BuyButton packageId={pkg.id} method="vnpay" label="Thanh toán VNPay" />
+                </div>
               ) : (
                 <Button asChild variant="outline" className="w-full">
                   <Link href="/sign-in">Đăng nhập để mua</Link>
@@ -95,7 +95,7 @@ export default async function PricingPage() {
       </div>
 
       <p className="text-center text-xs text-muted-foreground mt-8">
-        Thanh toán qua MoMo Sandbox (môi trường thử nghiệm). Không trừ tiền thật.
+        Thanh toán qua MoMo hoặc VNPay Sandbox (môi trường thử nghiệm). Không trừ tiền thật.
       </p>
     </main>
   )

@@ -7,12 +7,14 @@ import { headers } from "next/headers"
 import { Button } from "@/components/ui/button"
 import { Toaster } from "@/components/ui/sonner"
 import { BookOpen, Search, Coins, UserCircle2 } from "lucide-react"
+import { NavLinks } from "./_components/nav-links"
 import Image from "next/image"
 import { db } from "@/lib/db"
 import { users } from "@/db/schema/auth"
 import { eq } from "drizzle-orm"
 import { getUnreadCount } from "@/modules/reader"
 import { NotificationBell } from "@/components/notification-bell"
+import { WebVitals } from "./_components/web-vitals"
 
 const inter = Inter({
   variable: "--font-sans",
@@ -32,11 +34,6 @@ export const metadata: Metadata = {
   description: "Đọc truyện dịch chất lượng cao",
 }
 
-const NAV_LINKS = [
-  { label: "Thể loại", href: "/novels" },
-  { label: "Bảng xếp hạng", href: "/novels?sort=trending" },
-  { label: "Hoàn thành", href: "/novels?status=COMPLETED" },
-]
 
 async function SiteHeader() {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -65,15 +62,7 @@ async function SiteHeader() {
 
         {/* Primary nav */}
         <nav className="hidden md:flex items-center gap-1 flex-1">
-          {NAV_LINKS.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
-            >
-              {link.label}
-            </Link>
-          ))}
+          <NavLinks />
         </nav>
 
         {/* Mobile: single nav link */}
@@ -143,6 +132,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-full flex flex-col bg-background">
         {/* Apply dark class before first paint to avoid flash */}
         <script dangerouslySetInnerHTML={{ __html: `try{var p=JSON.parse(localStorage.getItem("reader-prefs")||"{}");if(p.theme&&p.theme!=="light")document.documentElement.classList.add("dark")}catch{}` }} />
+        <WebVitals />
         <SiteHeader />
         <div className="flex-1">{children}</div>
         <Toaster />

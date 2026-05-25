@@ -13,19 +13,19 @@ export function PaymentCompleteClient() {
   const orderId = params.get("orderId")
   const resultCode = params.get("resultCode")
 
+  const method = params.get("method") // "momo" | "vnpay" | null
   const [status, setStatus] = useState<Status>("loading")
   const [balance, setBalance] = useState<number | null>(null)
 
   useEffect(() => {
     if (!orderId) { setStatus("failed"); return }
 
-    // In dev, MoMo sandbox redirects with resultCode=0 on success
-    // but the IPN may not have fired yet — use the test endpoint to trigger credit
     async function finalize() {
       const isSuccess = resultCode === "0" || resultCode === null
 
-      if (isSuccess && process.env.NODE_ENV !== "production") {
-        // Trigger server-side credit via test endpoint
+      // VNPay: payment is already credited by the server-side return handler
+      // MoMo dev: IPN may not have fired yet — trigger credit via test endpoint
+      if (isSuccess && process.env.NODE_ENV !== "production" && method !== "vnpay") {
         await fetch("/api/payment/momo/test", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -43,7 +43,7 @@ export function PaymentCompleteClient() {
     }
 
     finalize()
-  }, [orderId, resultCode])
+  }, [orderId, resultCode, method])
 
   if (status === "loading") {
     return (

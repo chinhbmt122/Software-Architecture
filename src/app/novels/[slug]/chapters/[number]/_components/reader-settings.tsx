@@ -21,8 +21,28 @@ const DEFAULTS: ReaderPrefs = {
   fontSize: 18,
   lineHeight: 1.85,
   width: 680,
-  theme: "light",
+  theme: "dark",
   fontFamily: "serif",
+}
+
+const STORAGE_KEY = "reader-settings"
+const LEGACY_STORAGE_KEY = "reader-prefs"
+
+function clamp(value: unknown, min: number, max: number, fallback: number) {
+  if (typeof value !== "number" || Number.isNaN(value)) return fallback
+  return Math.min(max, Math.max(min, value))
+}
+
+function normalizePrefs(value: unknown): ReaderPrefs {
+  if (!value || typeof value !== "object") return DEFAULTS
+  const raw = value as Partial<ReaderPrefs>
+  return {
+    fontSize: clamp(raw.fontSize, 14, 26, DEFAULTS.fontSize),
+    lineHeight: Number(clamp(raw.lineHeight, 1.4, 2.2, DEFAULTS.lineHeight).toFixed(2)),
+    width: clamp(raw.width, 480, 900, DEFAULTS.width),
+    theme: raw.theme === "light" || raw.theme === "dark" || raw.theme === "night" ? raw.theme : DEFAULTS.theme,
+    fontFamily: raw.fontFamily === "sans" || raw.fontFamily === "serif" ? raw.fontFamily : DEFAULTS.fontFamily,
+  }
 }
 
 export function useReaderPrefs() {
@@ -30,27 +50,18 @@ export function useReaderPrefs() {
 
   useEffect(() => {
     try {
-      const stored = localStorage.getItem("reader-prefs")
+      const stored = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY)
       if (stored) {
-        const parsed = { ...DEFAULTS, ...JSON.parse(stored) }
+        const parsed = normalizePrefs(JSON.parse(stored))
         setPrefs(parsed)
-        document.documentElement.classList.toggle("dark", parsed.theme !== "light")
-      } else {
-        const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches
-        const theme: Theme = systemDark ? "night" : "light"
-        setPrefs({ ...DEFAULTS, theme })
-        document.documentElement.classList.toggle("dark", theme !== "light")
       }
     } catch {}
   }, [])
 
   function update(patch: Partial<ReaderPrefs>) {
     setPrefs((prev) => {
-      const next = { ...prev, ...patch }
-      localStorage.setItem("reader-prefs", JSON.stringify(next))
-      if (patch.theme !== undefined) {
-        document.documentElement.classList.toggle("dark", patch.theme !== "light")
-      }
+      const next = normalizePrefs({ ...prev, ...patch })
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
       return next
     })
   }
@@ -79,7 +90,11 @@ export function ReaderSettingsButton({
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <button className="p-2 rounded-md hover:bg-black/5 transition-colors text-inherit opacity-60 hover:opacity-100">
+        <button
+          aria-label="Reader settings"
+          data-testid="reader-settings"
+          className="p-2 rounded-md hover:bg-black/5 transition-colors text-inherit opacity-60 hover:opacity-100"
+        >
           <Settings className="h-4 w-4" />
         </button>
       </SheetTrigger>
@@ -137,6 +152,7 @@ export function ReaderSettingsButton({
               <span className="text-xs text-muted-foreground">{prefs.fontSize}px</span>
             </div>
             <Slider
+              aria-label="Font size"
               min={14} max={26} step={1}
               value={[prefs.fontSize]}
               onValueChange={([v]) => onUpdate({ fontSize: v })}
@@ -153,6 +169,7 @@ export function ReaderSettingsButton({
               <span className="text-xs text-muted-foreground">{prefs.lineHeight}×</span>
             </div>
             <Slider
+              aria-label="Line height"
               min={1.4} max={2.2} step={0.1}
               value={[prefs.lineHeight]}
               onValueChange={([v]) => onUpdate({ lineHeight: Number(v.toFixed(1)) })}
@@ -166,7 +183,8 @@ export function ReaderSettingsButton({
               <span className="text-xs text-muted-foreground">{prefs.width}px</span>
             </div>
             <Slider
-              min={480} max={900} step={20}
+              aria-label="Content width"
+              min={480} max={900} step={10}
               value={[prefs.width]}
               onValueChange={([v]) => onUpdate({ width: v })}
             />

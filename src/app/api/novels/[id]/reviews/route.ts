@@ -19,8 +19,8 @@ export async function GET(req: NextRequest, { params }: Params) {
 }
 
 const bodySchema = z.object({
-  rating: z.number().int().min(1).max(10),
-  body: z.string().max(5000).nullable().optional(),
+  rating: z.number().int().min(1).max(5),
+  body: z.string().max(2000).nullable().optional(),
 })
 
 export async function POST(req: NextRequest, { params }: Params) {

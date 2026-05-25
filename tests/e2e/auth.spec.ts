@@ -8,7 +8,8 @@ test.describe("Auth flows", () => {
     await expect(page.locator("#password")).toBeVisible()
     await expect(page.getByRole("button", { name: "Đăng nhập" })).toBeVisible()
     await expect(page.getByRole("link", { name: "Quên mật khẩu?" })).toBeVisible()
-    await expect(page.getByRole("link", { name: "Đăng ký" })).toBeVisible()
+    // Scope to card footer to avoid matching the identical navbar link
+    await expect(page.locator('[data-slot="card-footer"]').getByRole("link", { name: "Đăng ký" })).toBeVisible()
   })
 
   test("sign-in — wrong credentials shows error", async ({ page }) => {
@@ -37,8 +38,8 @@ test.describe("Auth flows", () => {
     await page.goto("/forgot-password")
     await page.locator("input[type='email']").fill("someone@example.com")
     await page.getByRole("button", { name: /Gửi/i }).click()
-    // Confirmation message replaces form
-    await expect(page.locator("text=/email|thư/i")).toBeVisible({ timeout: 8_000 })
+    // Confirmation message replaces form; "đã gửi email đến" only appears in the confirmation paragraph
+    await expect(page.getByText(/đã gửi email đến/i)).toBeVisible({ timeout: 8_000 })
   })
 
   test("sign-up page — renders registration form", async ({ page }) => {

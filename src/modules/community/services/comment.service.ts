@@ -2,6 +2,7 @@ import { db } from "@/lib/db"
 import { comments, commentVotes } from "@/db/schema/community"
 import { users } from "@/db/schema/auth"
 import { and, desc, eq, isNull, sql } from "drizzle-orm"
+import DOMPurify from "isomorphic-dompurify"
 
 const PAGE_SIZE = 20
 
@@ -126,9 +127,27 @@ export async function createComment(
   content: string,
   parentId?: string,
 ): Promise<CommentWithMeta> {
+  const sanitizedContent = DOMPurify.sanitize(content, { USE_PROFILES: { html: true } })
+
+  if (parentId) {
+    const [parent] = await db
+      .select({ id: comments.id, parentId: comments.parentId, chapterId: comments.chapterId })
+      .from(comments)
+      .where(eq(comments.id, parentId))
+      .limit(1)
+
+    if (!parent || parent.chapterId !== chapterId) {
+      throw new Error("Invalid parent comment")
+    }
+
+    if (parent.parentId) {
+      throw new Error("Nested replies are not allowed")
+    }
+  }
+
   const [comment] = await db
     .insert(comments)
-    .values({ chapterId, userId, content, parentId: parentId ?? null })
+    .values({ chapterId, userId, content: sanitizedContent, parentId: parentId ?? null })
     .returning()
 
   const [author] = await db

@@ -1,6 +1,9 @@
 import { auth } from "@/lib/auth"
 import { createChapter, createChapterSchema, listChaptersByNovel, getNovelById } from "@/modules/content"
 import { fanOutNewChapterNotification } from "@/modules/reader"
+import { buildNovelDoc, indexNovel } from "@/modules/search"
+import { writeAuditLog } from "@/modules/admin"
+import { logger } from "@/lib/logger"
 import { headers } from "next/headers"
 import { NextRequest, NextResponse } from "next/server"
 
@@ -30,9 +33,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const novel = await getNovelById(id)
     if (novel) {
       fanOutNewChapterNotification(novel.id, novel.title, chapter.id, chapter.chapterNumber, chapter.title)
-        .catch(console.error) // fire-and-forget, don't block response
+        .catch((err) => logger.error({ err, novelId: novel.id, chapterId: chapter.id }, "Notification fan-out failed (POST)"))
+      void buildNovelDoc(novel.id).then((doc) => doc && indexNovel(doc))
     }
   }
 
+  void writeAuditLog(session.user.id, "CREATE_CHAPTER", "CHAPTER", chapter.id, {
+    novelId: id,
+    chapterNumber: chapter.chapterNumber,
+    title: chapter.title,
+  })
   return NextResponse.json(chapter, { status: 201 })
 }

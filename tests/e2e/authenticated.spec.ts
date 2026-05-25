@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test"
-import { AUTH_FILE } from "../global.setup"
+import { AUTH_FILE } from "../constants"
 
 // Reuse the session saved by global.setup.ts
 test.use({ storageState: AUTH_FILE })
@@ -15,7 +15,7 @@ test.describe("Authenticated user", () => {
   test("library page — accessible without redirect", async ({ page }) => {
     await page.goto("/library")
     await expect(page).toHaveURL("/library")
-    await expect(page.locator("main")).toBeVisible()
+    await expect(page.locator("main").last()).toBeVisible()
   })
 
   test("settings page — profile form visible", async ({ page }) => {

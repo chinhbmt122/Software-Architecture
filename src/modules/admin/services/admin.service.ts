@@ -251,9 +251,9 @@ export async function getAnalytics() {
   }
 }
 
-// ── Internal ───────────────────────────────────────────────────────────────────
+// ── Audit log ──────────────────────────────────────────────────────────────────
 
-async function writeAuditLog(
+export async function writeAuditLog(
   actorId: string,
   action: string,
   targetType: string,

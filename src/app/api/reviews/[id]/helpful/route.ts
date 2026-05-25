@@ -10,6 +10,12 @@ export async function POST(_req: NextRequest, { params }: Params) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { id } = await params
-  const isHelpful = await voteReviewHelpful(id, session.user.id)
-  return NextResponse.json({ helpful: isHelpful })
+  try {
+    const isHelpful = await voteReviewHelpful(id, session.user.id)
+    return NextResponse.json({ helpful: isHelpful })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Vote failed"
+    const status = message === "Cannot vote on own review" ? 403 : 400
+    return NextResponse.json({ error: message }, { status })
+  }
 }

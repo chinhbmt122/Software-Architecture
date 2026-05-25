@@ -5,6 +5,9 @@ import { headers } from "next/headers"
 import { notFound } from "next/navigation"
 import { ChapterReader } from "./_components/chapter-reader"
 import type { Metadata } from "next"
+import { db } from "@/lib/db"
+import { chapterUnlocks } from "@/db/schema"
+import { eq, and, inArray } from "drizzle-orm"
 
 interface Props {
   params: Promise<{ slug: string; number: string }>
@@ -68,6 +71,18 @@ export default async function ChapterPage({ params }: Props) {
     }
   }
 
+  let unlockedChapterIds = new Set<string>()
+  if (session && allChapters.length > 0) {
+    const rows = await db
+      .select({ chapterId: chapterUnlocks.chapterId })
+      .from(chapterUnlocks)
+      .where(and(
+        eq(chapterUnlocks.userId, session.user.id),
+        inArray(chapterUnlocks.chapterId, allChapters.map((c) => c.id)),
+      ))
+    unlockedChapterIds = new Set(rows.map((r) => r.chapterId))
+  }
+
   return (
     <ChapterReader
       novel={{ id: novel.id, title: novel.title, slug: novel.slug }}
@@ -83,7 +98,12 @@ export default async function ChapterPage({ params }: Props) {
         prev: adjacent.prev ? { chapterNumber: adjacent.prev.chapterNumber, title: adjacent.prev.title } : null,
         next: adjacent.next ? { chapterNumber: adjacent.next.chapterNumber, title: adjacent.next.title } : null,
       }}
-      allChapters={allChapters.map((c) => ({ chapterNumber: c.chapterNumber, title: c.title, isVip: c.isVip }))}
+      allChapters={allChapters.map((c) => ({
+        chapterNumber: c.chapterNumber,
+        title: c.title,
+        isVip: c.isVip,
+        isUnlocked: unlockedChapterIds.has(c.id),
+      }))}
       userId={session?.user.id}
       readingTimeMin={estimateReadingTime(chapter.wordCount)}
       isLocked={isLocked}

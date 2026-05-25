@@ -870,6 +870,18 @@ Each architectural driver follows the IEEE QA scenario structure.
 
 # 10. Architectural Tactics
 
+## 10.0 Quality Attribute Implementation Summary
+
+This is the concise presentation form of the tactic registry. Each line states which quality attribute is protected and which architectural tactic implements it.
+
+| Quality Attribute | Implemented Tactics In NovelHub |
+|-------------------|---------------------------------|
+| Performance | Chapter reading uses RSC pages, CDN caching, and Cloudinary image optimization to meet the mobile reading target; search uses Meilisearch for the < 500 ms path. |
+| Security | Better Auth sessions, httpOnly cookies, role checks, server-side VIP content gating, server-side sanitization, and HMAC-verified MoMo webhooks protect accounts, premium content, and payment callbacks. |
+| Reliability | Atomic Drizzle transactions, row locking on `users.coin_balance`, ledger writes, and idempotent webhook processing prevent partial unlocks, negative balances, and duplicate coin credits. |
+| Availability | CDN stale serving keeps cached free chapters readable during origin issues; search falls back to a Drizzle `ilike` database query when Meilisearch is down. |
+| Modifiability | The 4-layer Next.js full-stack monolith keeps presentation, feature modules, infrastructure, and data separate; search and payment providers are isolated behind module service functions. |
+
 ## 10.1 Tactic Registry
 
 | ID   | Tactic Name                 | Implementation in NovelHub                                                   | Addresses   |
@@ -906,6 +918,20 @@ Each architectural driver follows the IEEE QA scenario structure.
 | T-12   | Security         | Prevents stored XSS                 | May strip legitimate formatting (configure carefully)|
 | T-13   | Auditability     | Compliance, forensics               | One extra INSERT per admin action                   |
 
+## 10.3 Quality Assurance Traceability
+
+The tactics above are treated as verifiable implementation obligations, not only design notes. A quality attribute is considered covered when its tactic appears in the architecture, is implemented in the named code artifact, and is traced to RTM/API/UI evidence.
+
+| QA Concern | Tactic(s) | Implementation Position | Verification Evidence |
+|------------|-----------|-------------------------|-----------------------|
+| Fast chapter reading and SEO | T-01, T-02, T-03, T-11 | `src/app/novels/`, `src/app/novels/[slug]/`, `src/app/novels/[slug]/chapters/[number]/`, `src/app/sitemap.ts` | `tests/e2e/reader-ui.spec.ts`, `tests/e2e/novels-ui.spec.ts`, `tests/api/nfr-api.spec.ts`, RTM UC-07 to UC-11 and NFR rows |
+| VIP content protection | T-01, T-05, T-06, T-07 | Chapter RSC page calls monetization access checks before rendering content; unlock API routes through `src/modules/monetization/services/unlock.service.ts` | `tests/e2e/reader-ui.spec.ts`, `tests/api/payments-api.spec.ts`, RTM UC-09 and UC-18 |
+| Coin balance integrity | T-06, T-07 | `unlockChapter()` performs balance read, debit, unlock insert, and ledger insert inside one transaction; `coin_balance` is never cached | `tests/api/payments-api.spec.ts`, `tests/e2e/payments-ui.spec.ts`, RTM UC-16 to UC-18 |
+| Payment correctness | T-06, T-08 | `src/modules/monetization/services/momo.service.ts` verifies webhook state and updates payment, balance, and ledger atomically | `tests/api/payments-api.spec.ts`, `tests/e2e/payments-ui.spec.ts`, RTM UC-17 |
+| Search degradation | T-09, T-10 | `src/modules/search/services/search.service.ts` uses Meilisearch first and falls back to Drizzle `ilike` when unavailable | `tests/e2e/novels-ui.spec.ts`, `tests/e2e/public.spec.ts`, RTM UC-10 |
+| Curator/admin control | T-04, T-05, T-12, T-13 | `src/middleware.ts`, curator routes, admin module services, and audit log writes guard privileged actions | `tests/e2e/auth-gates.spec.ts`, `tests/e2e/curator-ui.spec.ts`, `tests/e2e/admin-ui.spec.ts`, `tests/api/admin-api.spec.ts`, RTM UC-21 to UC-23 |
+| Module modifiability | T-10 plus AD-D-04 | Feature code stays inside `src/modules/*`; callers use exported module functions instead of internal schemas/helpers | `npm run lint`, code review checklist, RTM architecture rows |
+
 \pagebreak
 
 # 11. Architectural Decisions
@@ -915,8 +941,8 @@ Each architectural driver follows the IEEE QA scenario structure.
 | Field          | Detail                                                                                        |
 |----------------|-----------------------------------------------------------------------------------------------|
 | **Decision**   | Use Next.js 16 with App Router for both frontend and backend API routes                       |
-| **Drivers**    | G-01 (chapter load speed), G-03 (SEO), G-06 (solo dev), DR-05 (SSR for crawlers)             |
-| **Rationale**  | App Router RSC eliminates client-side hydration for content-heavy pages. API Routes co-deployed with the frontend eliminate a separate backend deployment. `generateMetadata` solves SEO natively. |
+| **Drivers**    | G-01 (chapter load speed), G-03 (SEO), G-06 (solo dev), DR-05 (SSR for crawlers), AD-01 (chapter read latency), AD-06 (search engine indexability) |
+| **Rationale**  | App Router RSC eliminates client-side hydration for content-heavy pages, satisfying AD-01 (read latency < 1.5 s). API Routes co-deployed with the frontend eliminate a separate backend deployment. The `generateMetadata` API produces correct `og:title`, `og:description`, and canonical URL on every server-rendered response, directly satisfying AD-06 (Search Engine Indexability) via tactic T-11. |
 | **Trade-offs** | RSC mental model is harder than traditional SPA; mixing server and client state requires discipline. Accepted because performance and SEO gains outweigh complexity. |
 | **Alternatives** | Remix (RSC not native), SvelteKit (smaller ecosystem), Next.js Pages Router (no RSC)       |
 
@@ -991,6 +1017,20 @@ Each architectural driver follows the IEEE QA scenario structure.
 | **Drivers**    | AD-08, UC-23                                                                                 |
 | **Rationale**  | If the audit log is written in a separate transaction and that transaction fails, the action is recorded but the log is missing. Co-locating the audit write guarantees atomicity: either both exist or neither does. |
 | **Trade-offs** | Audit table grows large; requires periodic archiving. Mitigated by a 90-day retention policy. |
+
+## Design Pattern Manifestations
+
+The following GoF and enterprise patterns appear in the implementation. They are listed here for traceability; each pattern is a consequence of an architectural decision or tactic already documented above — not an independent design choice.
+
+| Pattern | Where It Appears | Key File(s) | Architectural Link |
+|---------|-----------------|-------------|--------------------|
+| **Repository** | Each module exposes named service functions (`getNovel()`, `listChaptersByNovel()`, `unlockChapter()`) that abstract all Drizzle queries; no page or API route imports from `src/db/schema/` directly | `src/modules/content/services/novel.service.ts`, `chapter.service.ts`; `src/modules/monetization/services/unlock.service.ts` | DC-01 (no schema imports from presentation), AD-D-04 (module isolation) |
+| **Facade** | Each module's `index.ts` re-exports only its public service functions; internal folder structure and helper functions are not visible to callers | `src/modules/content/index.ts`, `src/modules/monetization/index.ts`, `src/modules/reader/index.ts`, `src/modules/search/index.ts` | DC-02 (no cross-module imports), AD-D-04 |
+| **Strategy** | `searchNovels()` selects between two interchangeable search strategies at runtime: Meilisearch (primary, typo-tolerant) and Drizzle `ilike` (fallback, < 1 s) | `src/modules/search/services/search.service.ts` | AD-05, T-09, T-10, AD-D-07 |
+| **Middleware / Chain of Responsibility** | `src/middleware.ts` forms a three-stage chain — path classifier → session check → role check — before any handler executes; pages redirect on failure, API routes return 401/403 | `src/middleware.ts` | AD-02 (brute-force protection), AD-08, T-05, AD-D-05 |
+| **Observer (Fan-out)** | After a chapter publish commits to DB, `fanOutNewChapterNotification()` is called asynchronously (fire-and-forget) to insert notifications for all novel followers; failure does not roll back the publish | `src/app/api/novels/[id]/chapters/route.ts` (POST), `.../[chapterId]/route.ts` (PATCH); `src/modules/reader/services/notification.service.ts` | ADD §2.3.3 (chapter publish side-effects do not block commit) |
+| **Singleton** | `db` (Drizzle + Neon HTTP client) is instantiated once at module load and imported by all service files; no per-request reconnection | `src/lib/db.ts` | DC-06 (Vercel serverless — no persistent TCP), AD-D-02 |
+| **Idempotent Receiver** | `completeMomoPayment()` checks `payment.status === 'SUCCESS'` before any write, then uses a conditional `UPDATE WHERE status = 'PENDING'` as a race guard; `unlockChapter()` checks for an existing unlock record before deducting coins | `src/modules/monetization/services/momo.service.ts`, `unlock.service.ts` | AD-04 (webhook idempotency), T-08, AD-D-06 |
 
 \pagebreak
 

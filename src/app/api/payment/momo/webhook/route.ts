@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { verifyMomoIpn, completeMomoPayment } from "@/modules/monetization"
+import { logger } from "@/lib/logger"
 import { db } from "@/lib/db"
 import { payments } from "@/db/schema/monetization"
 import { eq } from "drizzle-orm"
@@ -26,8 +27,9 @@ export async function POST(req: NextRequest) {
 
   try {
     await completeMomoPayment(orderId, transId)
+    logger.info({ orderId, transId }, "MoMo payment completed")
   } catch (err) {
-    console.error("MoMo IPN processing error:", err)
+    logger.error({ err, orderId, transId }, "MoMo IPN processing error")
     return NextResponse.json({ message: "Processing error" }, { status: 500 })
   }
 

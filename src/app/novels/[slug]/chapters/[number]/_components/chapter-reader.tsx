@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react"
 import Link from "next/link"
-import { ChevronLeft, ChevronRight, List, Lock } from "lucide-react"
+import { ChevronLeft, ChevronRight, List, Lock, LockOpen } from "lucide-react"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { ReaderSettingsButton, useReaderPrefs } from "./reader-settings"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -28,6 +28,7 @@ interface AllChapter {
   chapterNumber: number
   title: string
   isVip: boolean
+  isUnlocked: boolean
 }
 
 interface Props {
@@ -73,17 +74,6 @@ export function ChapterReader({ novel, chapter, adjacent, allChapters, userId, r
   const totalChapters = allChapters.length
 
   // Sync reader theme → <html> so the sticky site header respects it too
-  useEffect(() => {
-    const root = document.documentElement
-    const prev = root.className
-    if (prefs.theme === "dark" || prefs.theme === "night") {
-      root.classList.add("dark")
-    } else {
-      root.classList.remove("dark")
-    }
-    return () => { root.className = prev }
-  }, [prefs.theme])
-
   // View counting: fire after 55% of estimated reading time
   useEffect(() => {
     const viewKey = `viewed:${chapter.id}`
@@ -174,7 +164,11 @@ export function ChapterReader({ novel, chapter, adjacent, allChapters, userId, r
                         {ch.chapterNumber}
                       </span>
                       <span className="truncate flex-1">{ch.title}</span>
-                      {ch.isVip && <Lock className="h-3 w-3 text-amber-500 shrink-0" />}
+                      {ch.isVip && (
+                        ch.isUnlocked
+                          ? <LockOpen className="h-3 w-3 text-emerald-500 shrink-0" />
+                          : <Lock className="h-3 w-3 text-amber-500 shrink-0" />
+                      )}
                     </Link>
                   ))}
                 </div>
@@ -198,7 +192,7 @@ export function ChapterReader({ novel, chapter, adjacent, allChapters, userId, r
         />
       ) : (
         <article
-          className="mx-auto px-5 pt-10 pb-28"
+          className="chapter-content mx-auto px-5 pt-10 pb-28"
           style={{
             maxWidth: prefs.width,
             fontSize: prefs.fontSize,
@@ -213,8 +207,8 @@ export function ChapterReader({ novel, chapter, adjacent, allChapters, userId, r
             <p className={cn("text-xs mb-2 font-[family-name:var(--font-sans)]", theme.text)}>
               Chương {chapter.chapterNumber}
               {chapter.isVip && (
-                <span className="ml-2 inline-flex items-center gap-0.5 text-amber-500">
-                  <Lock className="h-3 w-3" /> VIP
+                <span className={`ml-2 inline-flex items-center gap-0.5 ${isLocked ? "text-amber-500" : "text-emerald-500"}`}>
+                  {isLocked ? <Lock className="h-3 w-3" /> : <LockOpen className="h-3 w-3" />} VIP
                 </span>
               )}
             </p>

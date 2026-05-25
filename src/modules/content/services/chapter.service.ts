@@ -2,6 +2,12 @@ import { db } from "@/lib/db"
 import { chapters, novels } from "@/db/schema"
 import { eq, and, lt, gt, asc, desc, or, lte, sql } from "drizzle-orm"
 import { z } from "zod"
+import DOMPurify from "isomorphic-dompurify"
+import { cache } from "../lib/cache"
+
+function sanitizeContent(html: string): string {
+  return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } })
+}
 
 export const createChapterSchema = z.object({
   chapterNumber: z.number().int().positive(),
@@ -22,6 +28,12 @@ function countWords(content: string): number {
   return content.trim().split(/\s+/).filter(Boolean).length
 }
 
+async function invalidateNovelById(novelId: string) {
+  const [novel] = await db.select({ slug: novels.slug }).from(novels).where(eq(novels.id, novelId)).limit(1)
+  if (!novel) return
+  await cache.invalidateNovel(novel.slug)
+}
+
 export async function createChapter(novelId: string, data: CreateChapterInput) {
   const publishedAt = data.publishedAt ? new Date(data.publishedAt) : null
   const status =
@@ -31,14 +43,16 @@ export async function createChapter(novelId: string, data: CreateChapterInput) {
         ? "SCHEDULED"
         : data.status
 
+  const content = sanitizeContent(data.content)
+
   const [chapter] = await db
     .insert(chapters)
     .values({
       novelId,
       chapterNumber: data.chapterNumber,
       title: data.title,
-      content: data.content,
-      wordCount: countWords(data.content),
+      content,
+      wordCount: countWords(content),
       isVip: data.isVip,
       coinCost: data.isVip ? (data.coinCost ?? 1) : null,
       status,
@@ -51,21 +65,26 @@ export async function createChapter(novelId: string, data: CreateChapterInput) {
       .update(novels)
       .set({ totalChapters: sql`${novels.totalChapters} + 1`, updatedAt: new Date() })
       .where(eq(novels.id, novelId))
+    await invalidateNovelById(novelId)
   }
 
   return chapter
 }
 
-export async function updateChapter(id: string, data: UpdateChapterInput) {
+export async function updateChapter(
+  id: string,
+  data: UpdateChapterInput,
+): Promise<{ chapter: typeof chapters.$inferSelect | null; justPublished: boolean }> {
   const [existing] = await db.select().from(chapters).where(eq(chapters.id, id)).limit(1)
-  if (!existing) return null
+  if (!existing) return { chapter: null, justPublished: false }
 
   const updateData: Partial<typeof chapters.$inferInsert> = {}
   if (data.chapterNumber !== undefined) updateData.chapterNumber = data.chapterNumber
   if (data.title !== undefined) updateData.title = data.title
   if (data.content !== undefined) {
-    updateData.content = data.content
-    updateData.wordCount = countWords(data.content)
+    const content = sanitizeContent(data.content)
+    updateData.content = content
+    updateData.wordCount = countWords(content)
   }
   if (data.isVip !== undefined) {
     updateData.isVip = data.isVip
@@ -82,22 +101,25 @@ export async function updateChapter(id: string, data: UpdateChapterInput) {
   // Keep totalChapters in sync when publish status changes
   const wasPublished = existing.status === "PUBLISHED"
   const isNowPublished = (updateData.status ?? existing.status) === "PUBLISHED"
-  if (!wasPublished && isNowPublished) {
+  const justPublished = !wasPublished && isNowPublished
+
+  if (justPublished) {
     await db
       .update(novels)
       .set({ totalChapters: sql`${novels.totalChapters} + 1`, updatedAt: new Date() })
       .where(eq(novels.id, existing.novelId))
+    await invalidateNovelById(existing.novelId)
   } else if (wasPublished && !isNowPublished) {
     await db
       .update(novels)
       .set({ totalChapters: sql`${novels.totalChapters} - 1`, updatedAt: new Date() })
       .where(eq(novels.id, existing.novelId))
+    await invalidateNovelById(existing.novelId)
   }
 
-  const { cache } = await import("../lib/cache")
   await cache.invalidateChapter(`${existing.novelId}:${existing.chapterNumber}`)
 
-  return updated
+  return { chapter: updated ?? null, justPublished }
 }
 
 export async function deleteChapter(id: string) {
@@ -109,8 +131,8 @@ export async function deleteChapter(id: string) {
       .update(novels)
       .set({ totalChapters: sql`${novels.totalChapters} - 1`, updatedAt: new Date() })
       .where(eq(novels.id, chapter.novelId))
+    await invalidateNovelById(chapter.novelId)
   }
-  const { cache } = await import("../lib/cache")
   await cache.invalidateChapter(`${chapter.novelId}:${chapter.chapterNumber}`)
 }
 
@@ -119,9 +141,30 @@ export async function getChapterById(id: string) {
   return chapter ?? null
 }
 
+export async function getChapterAccessSummaryById(id: string) {
+  const [chapter] = await db
+    .select({
+      id: chapters.id,
+      novelId: chapters.novelId,
+      chapterNumber: chapters.chapterNumber,
+      title: chapters.title,
+      isVip: chapters.isVip,
+      coinCost: chapters.coinCost,
+      status: chapters.status,
+      publishedAt: chapters.publishedAt,
+      wordCount: chapters.wordCount,
+      totalViews: chapters.totalViews,
+      createdAt: chapters.createdAt,
+      updatedAt: chapters.updatedAt,
+    })
+    .from(chapters)
+    .where(eq(chapters.id, id))
+    .limit(1)
+  return chapter ?? null
+}
+
 // Returns chapter visible to readers (published or scheduled+past), cached 24h
 export async function getPublishedChapterByNumber(novelId: string, chapterNumber: number) {
-  const { cache } = await import("../lib/cache")
   return cache.getChapter(`${novelId}:${chapterNumber}`, async () => {
     const [chapter] = await db
       .select()

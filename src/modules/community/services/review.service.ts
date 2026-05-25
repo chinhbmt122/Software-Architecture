@@ -3,8 +3,9 @@ import { reviews, reviewVotes } from "@/db/schema/community"
 import { novels } from "@/db/schema/content"
 import { users } from "@/db/schema/auth"
 import { and, avg, desc, eq, sql } from "drizzle-orm"
+import DOMPurify from "isomorphic-dompurify"
 
-const PAGE_SIZE = 10
+const PAGE_SIZE = 20
 
 export interface ReviewWithMeta {
   id: string
@@ -97,6 +98,7 @@ export async function upsertReview(
   rating: number,
   body: string | null,
 ): Promise<ReviewWithMeta> {
+  const sanitizedBody = body ? DOMPurify.sanitize(body, { USE_PROFILES: { html: true } }) : null
   const [existing] = await db
     .select({ id: reviews.id })
     .from(reviews)
@@ -107,14 +109,14 @@ export async function upsertReview(
   if (existing) {
     const [updated] = await db
       .update(reviews)
-      .set({ rating, body, updatedAt: new Date() })
+      .set({ rating, body: sanitizedBody, updatedAt: new Date() })
       .where(eq(reviews.id, existing.id))
       .returning()
     review = updated
   } else {
     const [inserted] = await db
       .insert(reviews)
-      .values({ novelId, userId, rating, body })
+      .values({ novelId, userId, rating, body: sanitizedBody })
       .returning()
     review = inserted
   }
@@ -151,6 +153,16 @@ export async function deleteReview(reviewId: string, userId: string): Promise<bo
 }
 
 export async function voteReviewHelpful(reviewId: string, userId: string): Promise<boolean> {
+  const [review] = await db
+    .select({ userId: reviews.userId })
+    .from(reviews)
+    .where(eq(reviews.id, reviewId))
+    .limit(1)
+
+  if (review?.userId === userId) {
+    throw new Error("Cannot vote on own review")
+  }
+
   const [existing] = await db
     .select({ reviewId: reviewVotes.reviewId })
     .from(reviewVotes)

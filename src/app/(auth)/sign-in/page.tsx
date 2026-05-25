@@ -37,7 +37,6 @@ export default function SignInPage() {
     }
 
     router.push("/")
-    router.refresh()
   }
 
   async function handleGoogle() {

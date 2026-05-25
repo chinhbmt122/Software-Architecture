@@ -36,6 +36,18 @@ Design constraints are system-level properties that bound the architecture regar
 
 Each quality attribute requirement is expressed as a scenario following the IEEE QA scenario structure: **Stimulus → Stimulus Source → Environment → Artifact → Response → Response Measure**.
 
+## 2.0 Quality Attribute Implementation Snapshot
+
+This summary is slide-ready: it states the quality attribute, the concrete tactic/implementation used in NovelHub, and the requirement or decision it supports.
+
+| Quality Attribute | How NovelHub Ensures It |
+|-------------------|-------------------------|
+| Performance | Achieves fast chapter reading and search by using React Server Components for chapter pages (T-01), edge/CDN caching for public reads (T-02), Cloudinary image optimization (T-03), and Meilisearch for typo-tolerant search under the 500 ms target (T-09). Supports UC-09 and UC-10. |
+| Security | Protects accounts, VIP content, and payment flow with Better Auth httpOnly sessions (T-05), server-side VIP access checks before rendering chapter content, role checks for curator/admin routes, server-side sanitization (T-12), and MoMo HMAC-SHA256 verification before any coin mutation (T-08). Supports UC-02, UC-09, UC-17, UC-18, UC-21, and UC-23. |
+| Reliability | Preserves financial correctness through Drizzle `db.transaction()` for coin debit/unlock/ledger writes (T-06), `SELECT ... FOR UPDATE` on `users.coin_balance` for concurrent unlocks (T-07), and idempotent payment processing so repeated webhooks credit coins once (T-08). Supports UC-17 and UC-18. |
+| Availability | Keeps public reading and search usable during partial outages through CDN stale serving for free chapters (T-02), stateless serverless function replacement, and database fallback when Meilisearch is unavailable (T-10). Supports UC-09 and UC-10. |
+| Modifiability | Keeps the full-stack monolith changeable through a 4-layer structure and feature modules under `src/modules/`; payment and search providers are isolated behind module service functions, so changes stay inside the owning module. Supports AD-D-04, AD-D-07, and UC-17/UC-10 evolution. |
+
 ## 2.1 Security
 
 ### 2.1.1 Authentication and Authorization
@@ -427,28 +439,30 @@ Full entity-relationship model is in `docs/ERD.md`.
 
 # 4. QA Driver Summary
 
-This table cross-references each QA scenario in this document with the corresponding architectural tactics and decisions documented in the SAD (v1.0), and the Behavior View packets that demonstrate them.
+This table cross-references each QA scenario in this document with the corresponding architectural tactics and decisions documented in the SAD (v1.0), the Behavior View packets that demonstrate them, and the verification evidence used by the RTM. In the presentation, this is the bridge between Slide 5 (Quality Drivers), Slide 8 (Architecture Decisions), Slide 9 (VIP Unlock), and Slide 11 (Verification With RTM).
 
-| Scenario | QA Attribute   | SAD Tactic(s)          | SAD Decision | Behavior View   |
-|----------|----------------|------------------------|--------------|-----------------|
-| 2.1.1    | Security       | T-05 (httpOnly cookie) | AD-D-05      | VP-7.1          |
-| 2.1.2    | Security       | T-01 (RSC gate)        | AD-D-01      | VP-7.2, VP-7.4  |
-| 2.1.3    | Security       | T-08 (HMAC-SHA256)     | AD-D-06      | VP-7.3          |
-| 2.1.4    | Security       | T-04 (attempt counter) | AD-D-05      | VP-7.1          |
-| 2.1.5    | Security       | T-12 (DOMPurify)       | AD-D-08      | VP-7.5          |
-| 2.2.1    | Performance    | T-01, T-02, T-03       | AD-D-01      | VP-7.4          |
-| 2.2.2    | Performance    | T-11 (generateMetadata)| AD-D-01      | VP-7.4          |
-| 2.2.3    | Performance    | T-09, T-10             | AD-D-07      | —               |
-| 2.3.1    | Reliability    | T-06, T-07             | AD-D-03      | VP-7.2          |
-| 2.3.2    | Reliability    | T-06, T-08             | AD-D-06      | VP-7.3          |
-| 2.3.3    | Reliability    | T-06                   | AD-D-03      | VP-7.5          |
-| 2.4.1    | Availability   | T-02 (CDN cache)       | AD-D-01      | VP-7.4          |
-| 2.4.2    | Availability   | T-10 (DB fallback)     | AD-D-07      | —               |
-| 2.4.3    | Availability   | —                      | AD-D-01      | —               |
-| 2.5.1    | Scalability    | T-01, T-02             | AD-D-01      | VP-7.4          |
-| 2.5.2    | Scalability    | T-09                   | AD-D-07      | —               |
-| 2.5.3    | Scalability    | T-06                   | AD-D-02      | —               |
-| 2.6.1    | Modifiability  | —                      | AD-D-04      | VP-7.3, VP-7.5  |
-| 2.6.2    | Modifiability  | T-10                   | AD-D-07      | —               |
-| 2.6.3    | Modifiability  | T-05                   | AD-D-05      | VP-7.1          |
-| 2.6.4    | Modifiability  | —                      | AD-D-04      | —               |
+| Scenario | QA Attribute   | SAD Tactic(s)          | SAD Decision | Behavior View   | Implementation / Verification Evidence |
+|----------|----------------|------------------------|--------------|-----------------|----------------------------------------|
+| 2.1.1    | Security       | T-05 (httpOnly cookie) | AD-D-05      | VP-7.1          | `src/middleware.ts`, `src/lib/auth.ts`; `tests/e2e/auth-gates.spec.ts`, `tests/api/auth-api.spec.ts` |
+| 2.1.2    | Security       | T-01 (RSC gate)        | AD-D-01      | VP-7.2, VP-7.4  | Chapter page server-side access check; `tests/e2e/reader-ui.spec.ts`, `tests/api/payments-api.spec.ts` |
+| 2.1.3    | Security       | T-08 (HMAC-SHA256)     | AD-D-06      | VP-7.3          | `src/modules/monetization/services/momo.service.ts`; `tests/api/payments-api.spec.ts` |
+| 2.1.4    | Security       | T-04 (attempt counter) | AD-D-05      | VP-7.1          | Better Auth sign-in flow and user lock fields; `tests/api/auth-api.spec.ts`, `tests/e2e/auth.spec.ts` |
+| 2.1.5    | Security       | T-12 (DOMPurify)       | AD-D-08      | VP-7.5          | Chapter/comment save paths; `tests/e2e/curator-ui.spec.ts`, `tests/e2e/observability-ui.spec.ts` |
+| 2.2.1    | Performance    | T-01, T-02, T-03       | AD-D-01      | VP-7.4          | RSC chapter reader, CDN/image configuration; `tests/e2e/reader-ui.spec.ts`, `tests/api/nfr-api.spec.ts` |
+| 2.2.2    | SEO / Indexability | T-11 (generateMetadata)| AD-D-01      | VP-7.4          | `generateMetadata()` and sitemap routes; `tests/api/nfr-api.spec.ts`, `tests/e2e/novels-ui.spec.ts` |
+| 2.2.3    | Performance    | T-09, T-10             | AD-D-07      | -               | `src/modules/search/services/search.service.ts`; `tests/e2e/novels-ui.spec.ts`, `tests/e2e/public.spec.ts` |
+| 2.3.1    | Reliability    | T-06, T-07             | AD-D-03      | VP-7.2          | `unlockChapter()` transaction and row lock; `tests/api/payments-api.spec.ts` |
+| 2.3.2    | Reliability    | T-06, T-08             | AD-D-06      | VP-7.3          | MoMo webhook idempotent receiver; `tests/api/payments-api.spec.ts` |
+| 2.3.3    | Reliability    | T-06                   | AD-D-03      | VP-7.5          | Chapter publish transaction and post-commit side effects; `tests/api/curator-api.spec.ts`, `tests/e2e/curator-ui.spec.ts` |
+| 2.4.1    | Availability   | T-02 (CDN cache)       | AD-D-01      | VP-7.4          | Cache headers and edge deployment configuration; `tests/api/nfr-api.spec.ts` |
+| 2.4.2    | Availability   | T-10 (DB fallback)     | AD-D-07      | -               | Search fallback path; `tests/e2e/novels-ui.spec.ts`, `tests/e2e/public.spec.ts` |
+| 2.4.3    | Availability   | Stateless serverless isolation | AD-D-01      | -               | Vercel serverless deployment model; `src/instrumentation.ts`, `src/app/error.tsx`, `src/app/global-error.tsx` |
+| 2.5.1    | Scalability    | T-01, T-02             | AD-D-01      | VP-7.4          | RSC plus edge cache path; `tests/api/nfr-api.spec.ts` |
+| 2.5.2    | Scalability    | T-09                   | AD-D-07      | -               | Meilisearch index isolation; `src/modules/search/services/search.service.ts` |
+| 2.5.3    | Scalability    | T-06                   | AD-D-02      | -               | Neon HTTP driver and transaction usage; `src/lib/db.ts` |
+| 2.6.1    | Modifiability  | Gateway adapter isolation | AD-D-04      | VP-7.3, VP-7.5  | Payment code isolated in `src/modules/monetization/`; RTM UC-17 |
+| 2.6.2    | Modifiability  | T-10                   | AD-D-07      | -               | Search provider behind `searchNovels()`; RTM UC-10 |
+| 2.6.3    | Modifiability  | T-05                   | AD-D-05      | VP-7.1          | Auth code isolated in `src/lib/auth.ts`, `src/lib/auth-client.ts`, `src/middleware.ts` |
+| 2.6.4    | Modifiability  | Module public exports | AD-D-04      | -               | `src/modules/*/index.ts`, ESLint/import review, `npm run lint` |
+
+The RTM is the final verification layer: SRS use cases define what must work, ADD identifies the quality scenarios, SAD records the tactics and decisions, and RTM links those requirements to backend, UI, and integration tests.

@@ -1,13 +1,14 @@
 import { db } from "@/lib/db"
 import { novels, genres, tags, novelGenres, novelTags } from "@/db/schema"
-import { eq, desc, and, inArray, ilike, or, sql, ne } from "drizzle-orm"
+import { eq, desc, and, inArray, ilike, or, sql, ne, type SQL } from "drizzle-orm"
 import slugify from "slugify"
 import { z } from "zod"
+import { cache } from "../lib/cache"
 
 export const createNovelSchema = z.object({
   title: z.string().min(1).max(500),
   synopsis: z.string().optional(),
-  coverImageUrl: z.url().optional(),
+  coverImageUrl: z.preprocess((v) => (v === "" ? undefined : v), z.url().optional()),
   status: z.enum(["ONGOING", "COMPLETED", "HIATUS", "DROPPED"]).default("ONGOING"),
   originalLanguage: z.enum(["VI", "ZH", "KO", "JA", "EN"]).default("ZH"),
   genreIds: z.array(z.number()).optional(),
@@ -23,6 +24,50 @@ export type UpdateNovelInput = z.infer<typeof updateNovelSchema>
 
 function makeSlug(title: string) {
   return slugify(title, { lower: true, strict: true, locale: "vi" })
+}
+
+function normalizeForSearch(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+}
+
+function editDistanceAtMostOne(a: string, b: string) {
+  if (Math.abs(a.length - b.length) > 1) return false
+  let i = 0
+  let j = 0
+  let edits = 0
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i += 1
+      j += 1
+      continue
+    }
+    edits += 1
+    if (edits > 1) return false
+    if (a.length > b.length) i += 1
+    else if (b.length > a.length) j += 1
+    else {
+      i += 1
+      j += 1
+    }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1
+}
+
+function fuzzyMatchesNovel(novel: Pick<typeof novels.$inferSelect, "title" | "synopsis">, rawQuery: string) {
+  const query = normalizeForSearch(rawQuery).trim()
+  if (!query) return true
+
+  const haystack = normalizeForSearch(`${novel.title} ${novel.synopsis ?? ""}`)
+  if (haystack.includes(query)) return true
+
+  const words = haystack.split(/[^a-z0-9]+/).filter(Boolean)
+  const queryWords = query.split(/\s+/).filter(Boolean)
+  return queryWords.every((queryWord) =>
+    words.some((word) => word.includes(queryWord) || queryWord.includes(word) || editDistanceAtMostOne(queryWord, word)),
+  )
 }
 
 async function ensureUniqueSlug(base: string, excludeId?: string): Promise<string> {
@@ -63,13 +108,13 @@ export async function createNovel(data: CreateNovelInput, userId: string) {
     await db.insert(novelTags).values(data.tagIds.map((t) => ({ novelId: novel.id, tagId: t })))
   }
 
-  const { cache } = await import("../lib/cache")
   await cache.invalidateNovel(novel.slug)
 
   return novel
 }
 
 export async function updateNovel(id: string, data: UpdateNovelInput) {
+  const existing = await getNovelById(id)
   const updateData: Partial<typeof novels.$inferInsert> = {}
   if (data.title !== undefined) {
     updateData.title = data.title
@@ -98,11 +143,18 @@ export async function updateNovel(id: string, data: UpdateNovelInput) {
     }
   }
 
+  if (existing?.slug) await cache.invalidateNovel(existing.slug)
+  if (updated?.slug && updated.slug !== existing?.slug) await cache.invalidateNovel(updated.slug)
+
   return updated
 }
 
 export async function deleteNovel(id: string) {
+  const existing = await getNovelById(id)
   await db.delete(novels).where(eq(novels.id, id))
+  if (existing?.slug) {
+    await cache.invalidateNovel(existing.slug)
+  }
 }
 
 export async function getNovelById(id: string) {
@@ -111,22 +163,24 @@ export async function getNovelById(id: string) {
 }
 
 export async function getNovelBySlug(slug: string) {
-  const [novel] = await db.select().from(novels).where(eq(novels.slug, slug)).limit(1)
-  if (!novel) return null
+  return cache.getNovel(slug, async () => {
+    const [novel] = await db.select().from(novels).where(eq(novels.slug, slug)).limit(1)
+    if (!novel) return null
 
-  const novelGenreRows = await db
-    .select({ id: genres.id, name: genres.name, slug: genres.slug })
-    .from(novelGenres)
-    .innerJoin(genres, eq(novelGenres.genreId, genres.id))
-    .where(eq(novelGenres.novelId, novel.id))
+    const novelGenreRows = await db
+      .select({ id: genres.id, name: genres.name, slug: genres.slug })
+      .from(novelGenres)
+      .innerJoin(genres, eq(novelGenres.genreId, genres.id))
+      .where(eq(novelGenres.novelId, novel.id))
 
-  const novelTagRows = await db
-    .select({ id: tags.id, name: tags.name, slug: tags.slug })
-    .from(novelTags)
-    .innerJoin(tags, eq(novelTags.tagId, tags.id))
-    .where(eq(novelTags.novelId, novel.id))
+    const novelTagRows = await db
+      .select({ id: tags.id, name: tags.name, slug: tags.slug })
+      .from(novelTags)
+      .innerJoin(tags, eq(novelTags.tagId, tags.id))
+      .where(eq(novelTags.novelId, novel.id))
 
-  return { ...novel, genres: novelGenreRows, tags: novelTagRows }
+    return { ...novel, genres: novelGenreRows, tags: novelTagRows }
+  })
 }
 
 export async function listNovels(filters: {
@@ -134,55 +188,73 @@ export async function listNovels(filters: {
   genreId?: number
   search?: string
   isFeatured?: boolean
+  sort?: string
   limit?: number
   offset?: number
 }) {
-  const conditions = []
-  if (filters.status) conditions.push(eq(novels.status, filters.status as never))
-  if (filters.isFeatured !== undefined) conditions.push(eq(novels.isFeatured, filters.isFeatured))
-  if (filters.search) {
-    conditions.push(
-      or(ilike(novels.title, `%${filters.search}%`), ilike(novels.synopsis, `%${filters.search}%`))
-    )
-  }
+  const searchText = filters.search?.trim()
+  const baseConditions: SQL[] = []
+  if (filters.status) baseConditions.push(eq(novels.status, filters.status as never))
+  if (filters.isFeatured !== undefined) baseConditions.push(eq(novels.isFeatured, filters.isFeatured))
 
-  let query = db
-    .select()
-    .from(novels)
-    .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(desc(novels.updatedAt))
-    .limit(filters.limit ?? 20)
-    .offset(filters.offset ?? 0)
+  const orderBy =
+    filters.sort === "trending" ? [desc(novels.totalViews)] :
+      filters.sort === "rating" ? [sql`${novels.avgRating} IS NULL`, desc(novels.avgRating)] :
+        filters.sort === "chapters" ? [desc(novels.totalChapters)] :
+          [desc(novels.updatedAt)]
 
-  if (filters.genreId) {
-    return db
-      .select({ novel: novels })
-      .from(novels)
-      .innerJoin(novelGenres, eq(novelGenres.novelId, novels.id))
-      .where(
-        and(
-          eq(novelGenres.genreId, filters.genreId),
-          ...(conditions.length ? conditions : [sql`1=1`])
+  const fetchRows = async (extraCondition?: SQL, limit = filters.limit ?? 20, offset = filters.offset ?? 0) => {
+    const conditions = extraCondition ? [...baseConditions, extraCondition] : baseConditions
+    if (filters.genreId) {
+      return db
+        .select({ novel: novels })
+        .from(novels)
+        .innerJoin(novelGenres, eq(novelGenres.novelId, novels.id))
+        .where(
+          and(
+            eq(novelGenres.genreId, filters.genreId),
+            ...(conditions.length ? conditions : [sql`1=1`]),
+          ),
         )
-      )
-      .orderBy(desc(novels.updatedAt))
-      .limit(filters.limit ?? 20)
-      .offset(filters.offset ?? 0)
-      .then((rows) => rows.map((r) => r.novel))
+        .orderBy(...orderBy)
+        .limit(limit)
+        .offset(offset)
+        .then((rows) => rows.map((r) => r.novel))
+    }
+
+    return db
+      .select()
+      .from(novels)
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(...orderBy)
+      .limit(limit)
+      .offset(offset)
   }
 
-  return query
+  if (searchText) {
+    const exactSearch = or(ilike(novels.title, `%${searchText}%`), ilike(novels.synopsis, `%${searchText}%`))
+    const exactRows = await fetchRows(exactSearch)
+    if (exactRows.length > 0) return exactRows
+
+    const limit = filters.limit ?? 20
+    const offset = filters.offset ?? 0
+    const candidateLimit = Math.max(200, offset + limit)
+    const fuzzyRows = (await fetchRows(undefined, candidateLimit, 0)).filter((novel) =>
+      fuzzyMatchesNovel(novel, searchText),
+    )
+    return fuzzyRows.slice(offset, offset + limit)
+  }
+
+  return fetchRows()
 }
 
 export async function getTrendingNovels(limit = 10) {
-  const { cache } = await import("../lib/cache")
   return cache.getTrending(() =>
     db.select().from(novels).orderBy(desc(novels.totalViews)).limit(limit)
   )
 }
 
 export async function getNewArrivals(limit = 10) {
-  const { cache } = await import("../lib/cache")
   return cache.getNewArrivals(() =>
     db.select().from(novels).orderBy(desc(novels.createdAt)).limit(limit)
   )

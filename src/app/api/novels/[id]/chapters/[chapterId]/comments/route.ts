@@ -15,8 +15,8 @@ export async function GET(req: NextRequest, { params }: Params) {
 }
 
 const bodySchema = z.object({
-  content: z.string().min(1).max(2000),
-  parentId: z.string().uuid().optional(),
+  content: z.string().min(1).max(1000),
+  parentId: z.string().uuid().nullable().optional(),
 })
 
 export async function POST(req: NextRequest, { params }: Params) {
@@ -27,6 +27,12 @@ export async function POST(req: NextRequest, { params }: Params) {
   const parsed = bodySchema.safeParse(await req.json())
   if (!parsed.success) return NextResponse.json({ error: "Invalid body" }, { status: 400 })
 
-  const comment = await createComment(chapterId, session.user.id, parsed.data.content, parsed.data.parentId)
-  return NextResponse.json(comment, { status: 201 })
+  try {
+    const comment = await createComment(chapterId, session.user.id, parsed.data.content, parsed.data.parentId ?? undefined)
+    return NextResponse.json(comment, { status: 201 })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Comment failed"
+    const status = message === "Invalid parent comment" || message === "Nested replies are not allowed" ? 400 : 500
+    return NextResponse.json({ error: message }, { status })
+  }
 }

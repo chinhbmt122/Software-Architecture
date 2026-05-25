@@ -1,23 +1,56 @@
 import { redis, CACHE_KEYS, CACHE_TTL } from "@/lib/redis"
+import { logger } from "@/lib/logger"
+
+type MemoryEntry<T> = { expiresAt: number; value: T }
+
+const memoryCache = new Map<string, MemoryEntry<unknown>>()
+
+function isRedisConfigured() {
+  return !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN)
+}
+
+function getMemory<T>(key: string): T | null {
+  const entry = memoryCache.get(key)
+  if (!entry) return null
+  if (entry.expiresAt <= Date.now()) {
+    memoryCache.delete(key)
+    return null
+  }
+  return entry.value as T
+}
+
+function setMemory<T>(key: string, ttl: number, value: T) {
+  memoryCache.set(key, { expiresAt: Date.now() + ttl * 1000, value })
+}
 
 export async function getCached<T>(key: string, fetcher: () => Promise<T>, ttl: number): Promise<T> {
-  if (!process.env.UPSTASH_REDIS_REST_URL) return fetcher()
+  if (!isRedisConfigured()) {
+    const cached = getMemory<T>(key)
+    if (cached !== null) return cached
+    const data = await fetcher()
+    setMemory(key, ttl, data)
+    return data
+  }
   try {
     const cached = await redis.get<T>(key)
     if (cached !== null) return cached
     const data = await fetcher()
     await redis.setex(key, ttl, data)
     return data
-  } catch {
+  } catch (err) {
+    logger.warn({ err, key }, "Redis cache error — falling back to DB")
     return fetcher()
   }
 }
 
 export async function invalidate(...keys: string[]) {
-  if (!process.env.UPSTASH_REDIS_REST_URL) return
+  keys.forEach((key) => memoryCache.delete(key))
+  if (!isRedisConfigured()) return
   try {
     await Promise.all(keys.map((k) => redis.del(k)))
-  } catch {}
+  } catch (err) {
+    logger.warn({ err, keys }, "Redis invalidation failed")
+  }
 }
 
 export const cache = {

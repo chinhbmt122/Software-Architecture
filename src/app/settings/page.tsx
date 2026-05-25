@@ -6,6 +6,7 @@ import { users } from "@/db/schema/auth"
 import { eq } from "drizzle-orm"
 import { ProfileForm } from "./_components/profile-form"
 import { PasswordForm } from "./_components/password-form"
+import { SignOutButton } from "./_components/sign-out-button"
 import { Separator } from "@/components/ui/separator"
 
 export const metadata = { title: "Cài đặt tài khoản" }
@@ -35,6 +36,15 @@ export default async function SettingsPage() {
           Đổi mật khẩu
         </h2>
         <PasswordForm />
+      </section>
+
+      <Separator className="my-8" />
+
+      <section>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-5">
+          Phiên đăng nhập
+        </h2>
+        <SignOutButton />
       </section>
     </main>
   )

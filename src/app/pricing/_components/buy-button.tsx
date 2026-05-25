@@ -7,15 +7,16 @@ import { toast } from "sonner"
 interface Props {
   packageId: number
   label: string
+  method: "momo" | "vnpay"
 }
 
-export function BuyButton({ packageId, label }: Props) {
+export function BuyButton({ packageId, label, method }: Props) {
   const [loading, setLoading] = useState(false)
 
   async function handleClick() {
     setLoading(true)
     try {
-      const res = await fetch("/api/payment/momo/create", {
+      const res = await fetch(`/api/payment/${method}/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ packageId }),
@@ -34,7 +35,12 @@ export function BuyButton({ packageId, label }: Props) {
   }
 
   return (
-    <Button onClick={handleClick} disabled={loading} className="w-full">
+    <Button
+      onClick={handleClick}
+      disabled={loading}
+      variant={method === "vnpay" ? "outline" : "default"}
+      className="w-full"
+    >
       {loading ? "Đang xử lý..." : label}
     </Button>
   )

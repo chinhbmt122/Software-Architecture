@@ -12,9 +12,11 @@ test.describe("Public pages (unauthenticated)", () => {
 
   test("home page — nav links visible", async ({ page }) => {
     await page.goto("/")
-    await expect(page.getByRole("link", { name: "Thể loại" })).toBeVisible()
-    await expect(page.getByRole("link", { name: "Bảng xếp hạng" })).toBeVisible()
-    await expect(page.getByRole("link", { name: "Hoàn thành" })).toBeVisible()
+    // Scope to navigation to avoid matching novel cards that contain the same text
+    const nav = page.getByRole("navigation")
+    await expect(nav.getByRole("link", { name: "Thể loại" })).toBeVisible()
+    await expect(nav.getByRole("link", { name: "Bảng xếp hạng" })).toBeVisible()
+    await expect(nav.getByRole("link", { name: "Hoàn thành" })).toBeVisible()
   })
 
   test("home page — sign-in / sign-up buttons for guests", async ({ page }) => {
@@ -27,21 +29,24 @@ test.describe("Public pages (unauthenticated)", () => {
     await page.goto("/novels")
     await expect(page.getByRole("heading", { name: "Thư viện truyện" })).toBeVisible()
     await expect(page.locator('input[name="q"]')).toBeVisible()
-    await expect(page.getByRole("link", { name: "Tất cả" })).toBeVisible()
-    await expect(page.getByRole("link", { name: "Đang ra" })).toBeVisible()
-    await expect(page.getByRole("link", { name: "Hoàn thành" })).toBeVisible()
+    // Scope filter checks to main content to avoid matching nav links + novel cards
+    const main = page.getByRole("main")
+    await expect(main.getByRole("link", { name: "Tất cả", exact: true })).toBeVisible()
+    await expect(main.getByRole("link", { name: "Đang ra", exact: true })).toBeVisible()
+    await expect(main.getByRole("link", { name: "Hoàn thành", exact: true })).toBeVisible()
   })
 
   test("novels list — search returns results or empty state", async ({ page }) => {
     await page.goto("/novels?q=truyen")
-    // Either shows novel cards or the "not found" message — no 500 error
-    await expect(page.locator("main")).toBeVisible()
+    // Wait for the page to load past the skeleton (heading only appears in the real page)
+    await expect(page.getByRole("heading", { name: "Thư viện truyện" })).toBeVisible()
     await expect(page).not.toHaveURL(/error/)
   })
 
   test("novels list — status filter updates URL", async ({ page }) => {
     await page.goto("/novels")
-    await page.getByRole("link", { name: "Hoàn thành" }).click()
+    // Scope click to main filter chips, not the nav link
+    await page.getByRole("main").getByRole("link", { name: "Hoàn thành", exact: true }).click()
     await expect(page).toHaveURL(/status=COMPLETED/)
   })
 })

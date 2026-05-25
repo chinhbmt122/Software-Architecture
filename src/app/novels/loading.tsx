@@ -12,7 +12,7 @@ function NovelCardSkeleton() {
 
 export default function NovelsLoading() {
   return (
-    <main className="max-w-6xl mx-auto px-4 py-8">
+    <div className="max-w-6xl mx-auto px-4 py-8">
       {/* Filter bar skeleton */}
       <div className="flex flex-wrap gap-2 mb-6 animate-pulse">
         <div className="h-9 w-40 bg-muted rounded-lg" />
@@ -27,6 +27,6 @@ export default function NovelsLoading() {
           <NovelCardSkeleton key={i} />
         ))}
       </div>
-    </main>
+    </div>
   )
 }

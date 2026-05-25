@@ -5,13 +5,13 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { BookOpen, Star, Eye, Lock, ChevronRight, BookMarked } from "lucide-react"
+import { BookOpen, Star, Eye, Lock, LockOpen, ChevronRight, BookMarked } from "lucide-react"
 import type { Metadata } from "next"
 import { auth } from "@/lib/auth"
 import { headers } from "next/headers"
 import { db } from "@/lib/db"
-import { readingProgress, chapters } from "@/db/schema"
-import { eq, and, desc } from "drizzle-orm"
+import { readingProgress, chapters, chapterUnlocks } from "@/db/schema"
+import { eq, and, desc, inArray } from "drizzle-orm"
 import { NovelReviews } from "./_components/novel-reviews"
 import { FollowButton } from "./_components/follow-button"
 import { NovelCard } from "@/components/novel-card"
@@ -78,9 +78,21 @@ export default async function NovelDetailPage({ params }: Props) {
       : Promise.resolve(null),
     getRecommendedNovels(novel.id, novel.genres.map((g) => g.id)),
   ])
-  incrementNovelViews(novel.id)
+  void incrementNovelViews(novel.id).catch(() => null)
 
   const chaptersList = chapterList
+
+  let unlockedChapterIds = new Set<string>()
+  if (session && chaptersList.length > 0) {
+    const rows = await db
+      .select({ chapterId: chapterUnlocks.chapterId })
+      .from(chapterUnlocks)
+      .where(and(
+        eq(chapterUnlocks.userId, session.user.id),
+        inArray(chapterUnlocks.chapterId, chaptersList.map((c) => c.id)),
+      ))
+    unlockedChapterIds = new Set(rows.map((r) => r.chapterId))
+  }
   const firstChapter = chaptersList[0]
   const continueChapterNumber = progressRow?.chapterNumber ?? null
 
@@ -252,7 +264,11 @@ export default async function NovelDetailPage({ params }: Props) {
                       {ch.chapterNumber}
                     </span>
                     <span className="text-sm truncate">{ch.title}</span>
-                    {ch.isVip && <Lock className="h-3 w-3 text-amber-500 shrink-0" />}
+                    {ch.isVip && (
+                      unlockedChapterIds.has(ch.id)
+                        ? <LockOpen className="h-3 w-3 text-emerald-500 shrink-0" />
+                        : <Lock className="h-3 w-3 text-amber-500 shrink-0" />
+                    )}
                   </div>
                   <span className="text-xs text-muted-foreground shrink-0 ml-4">
                     {formatDate(ch.publishedAt)}
