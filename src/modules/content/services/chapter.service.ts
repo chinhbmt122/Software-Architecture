@@ -2,11 +2,17 @@ import { db } from "@/lib/db"
 import { chapters, novels } from "@/db/schema"
 import { eq, and, lt, gt, asc, desc, or, lte, sql } from "drizzle-orm"
 import { z } from "zod"
-import DOMPurify from "isomorphic-dompurify"
+import sanitizeHtml from "sanitize-html"
 import { cache } from "../lib/cache"
 
 function sanitizeContent(html: string): string {
-  return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } })
+  return sanitizeHtml(html, {
+    allowedTags: sanitizeHtml.defaults.allowedTags.concat(["img", "h1", "h2", "h3"]),
+    allowedAttributes: {
+      ...sanitizeHtml.defaults.allowedAttributes,
+      img: ["src", "alt", "width", "height"],
+    },
+  })
 }
 
 export const createChapterSchema = z.object({

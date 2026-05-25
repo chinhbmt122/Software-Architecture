@@ -2,7 +2,7 @@ import { db } from "@/lib/db"
 import { comments, commentVotes } from "@/db/schema/community"
 import { users } from "@/db/schema/auth"
 import { and, desc, eq, isNull, sql } from "drizzle-orm"
-import DOMPurify from "isomorphic-dompurify"
+import sanitizeHtml from "sanitize-html"
 
 const PAGE_SIZE = 20
 
@@ -127,7 +127,7 @@ export async function createComment(
   content: string,
   parentId?: string,
 ): Promise<CommentWithMeta> {
-  const sanitizedContent = DOMPurify.sanitize(content, { USE_PROFILES: { html: true } })
+  const sanitizedContent = sanitizeHtml(content, { allowedTags: sanitizeHtml.defaults.allowedTags })
 
   if (parentId) {
     const [parent] = await db

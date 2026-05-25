@@ -3,7 +3,7 @@ import { reviews, reviewVotes } from "@/db/schema/community"
 import { novels } from "@/db/schema/content"
 import { users } from "@/db/schema/auth"
 import { and, avg, desc, eq, sql } from "drizzle-orm"
-import DOMPurify from "isomorphic-dompurify"
+import sanitizeHtml from "sanitize-html"
 
 const PAGE_SIZE = 20
 
@@ -98,7 +98,7 @@ export async function upsertReview(
   rating: number,
   body: string | null,
 ): Promise<ReviewWithMeta> {
-  const sanitizedBody = body ? DOMPurify.sanitize(body, { USE_PROFILES: { html: true } }) : null
+  const sanitizedBody = body ? sanitizeHtml(body, { allowedTags: sanitizeHtml.defaults.allowedTags }) : null
   const [existing] = await db
     .select({ id: reviews.id })
     .from(reviews)
