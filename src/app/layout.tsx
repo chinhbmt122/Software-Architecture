@@ -9,12 +9,14 @@ import { Toaster } from "@/components/ui/sonner"
 import { BookOpen, Search, Coins, UserCircle2 } from "lucide-react"
 import { NavLinks } from "./_components/nav-links"
 import Image from "next/image"
+import { Suspense } from "react"
 import { db } from "@/lib/db"
 import { users } from "@/db/schema/auth"
 import { eq } from "drizzle-orm"
 import { getUnreadCount } from "@/modules/reader"
 import { NotificationBell } from "@/components/notification-bell"
 import { WebVitals } from "./_components/web-vitals"
+import { logger } from "@/lib/logger"
 
 const inter = Inter({
   variable: "--font-sans",
@@ -36,20 +38,26 @@ export const metadata: Metadata = {
 
 
 async function SiteHeader() {
-  const session = await auth.api.getSession({ headers: await headers() })
-  const isCurator = session?.user.role === "CURATOR" || session?.user.role === "ADMIN"
-
+  let session: Awaited<ReturnType<typeof auth.api.getSession>> = null
   let coinBalance: number | null = null
   let unreadCount = 0
-  if (session) {
-    const [row] = await db
-      .select({ coinBalance: users.coinBalance })
-      .from(users)
-      .where(eq(users.id, session.user.id))
-      .limit(1)
-    coinBalance = row?.coinBalance ?? 0
-    unreadCount = await getUnreadCount(session.user.id)
+
+  try {
+    session = await auth.api.getSession({ headers: await headers() })
+    if (session) {
+      const [row] = await db
+        .select({ coinBalance: users.coinBalance })
+        .from(users)
+        .where(eq(users.id, session.user.id))
+        .limit(1)
+      coinBalance = row?.coinBalance ?? 0
+      unreadCount = await getUnreadCount(session.user.id)
+    }
+  } catch (err) {
+    logger.error({ err }, "SiteHeader: failed to load session/user data")
   }
+
+  const isCurator = session?.user.role === "CURATOR" || session?.user.role === "ADMIN"
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -62,7 +70,9 @@ async function SiteHeader() {
 
         {/* Primary nav */}
         <nav className="hidden md:flex items-center gap-1 flex-1">
-          <NavLinks />
+          <Suspense fallback={null}>
+            <NavLinks />
+          </Suspense>
         </nav>
 
         {/* Mobile: single nav link */}

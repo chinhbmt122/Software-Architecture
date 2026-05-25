@@ -3,6 +3,7 @@ import { NovelCard } from "@/components/novel-card"
 import Link from "next/link"
 import Image from "next/image"
 import { ChevronRight, BookOpen } from "lucide-react"
+import { logger } from "@/lib/logger"
 
 function SectionHeader({ title, href }: { title: string; href: string }) {
   return (
@@ -30,11 +31,19 @@ function EmptySection() {
 }
 
 export default async function HomePage() {
-  const [trending, newArrivals, featured] = await Promise.all([
-    getTrendingNovels(10),
-    getNewArrivals(10),
-    getFeaturedNovels(6),
-  ])
+  let trending: Awaited<ReturnType<typeof getTrendingNovels>> = []
+  let newArrivals: Awaited<ReturnType<typeof getNewArrivals>> = []
+  let featured: Awaited<ReturnType<typeof getFeaturedNovels>> = []
+
+  try {
+    ;[trending, newArrivals, featured] = await Promise.all([
+      getTrendingNovels(10),
+      getNewArrivals(10),
+      getFeaturedNovels(6),
+    ])
+  } catch (err) {
+    logger.error({ err }, "HomePage: failed to load novels")
+  }
 
   return (
     <main className="max-w-6xl mx-auto px-4 py-8 space-y-10">
