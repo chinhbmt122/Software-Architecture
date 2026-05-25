@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="98" uniqueCount="95"><si><t>Function</t></si><si><t>Description</t></si><si><t>Architectural Requirements</t></si><si><t>Note</t></si><si><t>User Management</t></si><si><t>Register (UC-01)</t></si><si><t>A new user creates an account by providing username, email, and password.</t></si><si><t>Security:
+- Password Confidentiality: Passwords MUST be hashed using bcrypt with a minimum cost factor (salt rounds) of 10 before persistence. Plaintext passwords must never be stored or logged.
+- Secure Transmission: All registration API calls must be served exclusively over HTTPS/TLS to prevent credential interception.
+- Input Validation: Server-side validation must sanitize all input fields to prevent SQL Injection and XSS attacks (using parameterized ORM queries — e.g., Sequelize/Prisma).
+- Uniqueness Enforcement: Username and email uniqueness must be enforced at both the DB constraint level and the application layer before hashing.
+Performance:
+- The POST /auth/register endpoint must respond with success or failure in &lt; 2 seconds under normal server load, including bcrypt hashing overhead.
+Architectural Driver: AD-05 (Security/Confidentiality), AD-06 (Security/Authentication)
+Utility Tree Scenario: Security/Data Confidentiality (H,M); Performance/Responsiveness (M,L)
+Tactics: T18 (HTTPS + bcrypt), T19 (Input Validation); Component: AuthController → UserRepository
+Traceability: UC-01, SRS BR2, BR6; SAD Section 10.3 T18, Section 11.5 Tech Stack</t></si><si><t>Architectural Driver: AD-05, AD-06. BV=H, TR=M.</t></si><si><t>Login (UC-02)</t></si><si><t>A registered user authenticates with email and password to obtain a session token.</t></si><si><t>Security:
+- JWT Issuance: On successful authentication, the system MUST issue a JWT signed with HS256 (or RS256), stored in an HttpOnly, SameSite=Strict cookie to prevent XSS-based token theft.
+- Brute-Force Protection: The BruteForceGuard component MUST track login_attempts per (email, IP). After 5 consecutive failed attempts, the account must be locked for a configurable period (T minutes). Fail-open on DB error (lockout check skipped but failure logged).
+- Generic Error Messages: On authentication failure, the system must return MSG03 ('Invalid credentials') — never specifying whether email or password was incorrect, to prevent user enumeration.
+- Constant-Time Comparison: bcrypt.compare() must be used for credential verification to prevent timing attacks.
+Performance:
+- Login response time must be &lt; 2 seconds at P95 under normal load, including bcrypt verification and JWT generation.
+Architectural Driver: AD-05 (Security/Authentication, H,M)
+Utility Tree Scenario: Security/Authentication (H,M); Security/Feedback (M,L)
+Tactics: T5 (BruteForceGuard), T6 (Generic Errors), T17 (JWT Auth), T18 (HTTPS + bcrypt)
+Components: AuthController, BruteForceGuard, UserRepository (login_attempts table)
+Traceability: UC-02, SRS BR3; SAD Section 6.3 BruteForceGuard interface, Section 10.3 T5, T17</t></si><si><t>Architectural Driver: AD-05. BV=H, TR=M. H,M Driver.</t></si><si><t>Logout (UC-03)</t></si><si><t>A logged-in user terminates their current session.</t></si><si><t>Security:
+- JWT Invalidation: On logout, the server MUST clear the JWT cookie (clearJWTToken()) and, if token denylist is implemented, add the token to the denylist to prevent reuse before natural expiry.
+- Back-Navigation Prevention: The SPA router must redirect to the Login page and block browser back-button re-entry to protected views after logout.
+- Session Termination Latency: The POST /auth/logout endpoint must complete and redirect within 500ms.
+Architectural Driver: AD-05 (Security/Authentication)
+Utility Tree Scenario: Security/Session Management (M,M)
+Tactics: T17 (JWT Auth), T18 (HTTPS)
+Components: AuthController, AuthMiddleware, SPA Router Guard
+Traceability: UC-03, SRS BR4; SAD Section 2.1 NFR, Section 13 UC-03 mapping</t></si><si><t>BV=M, TR=M.</t></si><si><t>View Profile (UC-04)</t></si><si><t>A logged-in user views their own account information.</t></si><si><t>Security:
+- DTO Filtering: The UserService MUST map the database user entity to a ProfileDTO that explicitly EXCLUDES password_hash, salt, and all internal system fields before serialization. The API response MUST NEVER contain password_hash under any code path.
+- Data Isolation: The GET /users/profile endpoint must use the userId extracted from the verified JWT (req.user.id) as the sole lookup key — no client-supplied userId accepted.
+- Zero Sensitive-Field Leakage: Automated API response tests must verify 0 occurrences of 'password_hash', 'salt', or token fields in profile responses.
+Architectural Driver: AD-06 (Security/Confidentiality, H,M)
+Utility Tree Scenario: Security/Access Control (H,L)
+Tactics: T2 (DTO Filtering), T3 (Data Isolation)
+Components: UserController → UserService → ProfileDTO → UserRepository
+Traceability: UC-04, SRS BR5; SAD Section 6.3 ProfileDTO, Section 9 Scenario S7, Section 10.3 T2</t></si><si><t>Architectural Driver: AD-06. BV=H, TR=M. H,M Driver.</t></si><si><t>Update Profile (UC-05)</t></si><si><t>A logged-in user updates their account information (e.g., email, password).</t></si><si><t>Reliability:
+- Atomic Transaction: The entire profile update (including conditional bcrypt re-hashing if password is changed) MUST execute within a single DB transaction. Any field-level validation failure must trigger a full ROLLBACK, leaving no partial state persisted.
+- Conditional Rehash: The system must re-hash the password using bcrypt (rounds &gt;= 10) if and only if the password field is present in the update payload; unchanged fields must not be re-processed.
+Security:
+- Authorization: Only the authenticated user (userId from JWT) may update their own profile; admin cannot update other users' profiles.
+- Secure Transmission: HTTPS required for all profile update requests.
+Architectural Driver: AD-04 (Reliability/Transactions, H,M)
+Utility Tree Scenario: Reliability/Data Integrity (H,M)
+Tactics: T8 (DB Transactions), T21 (Data Integrity Validation)
+Components: UserController → UserService → UserRepository (atomic transaction)
+Traceability: UC-05; SAD Section 10.4 T8, T21, Section 13 UC-05 mapping</t></si><si><t>Architectural Driver: AD-04. BV=H, TR=M.</t></si><si><t>Delete Account (UC-06)</t></si><si><t>A logged-in user permanently deletes their account and all associated data.</t></si><si><t>Reliability:
+- Cascade Atomic Transaction: Account deletion MUST execute a single DB transaction that cascades in order: reviews → cards → decks → user record. If any step fails, the full transaction MUST ROLLBACK, leaving the account intact.
+- Orphan Prevention: FK constraints with ON DELETE CASCADE on all child tables serve as a secondary safety layer; the application transaction is the primary mechanism.
+Usability:
+- Confirmation Dialog: The system MUST present a confirmation dialog (MSG05) before initiating deletion to prevent accidental irreversible data loss.
+Architectural Driver: AD-04 (Reliability/Transactions, H,M)
+Utility Tree Scenario: Reliability/Recoverability (H,L); Usability/Error Prevention (H,L)
+Tactics: T8 (DB Transactions), T20 (Orphan Prevention), T9 (Exception Detection)
+Components: UserController → UserService → (UserRepository + DeckRepository + CardRepository + ReviewRepository) in one TX
+Traceability: UC-06, SRS BR; SAD Section 10.4 T8, T20, Section 13 UC-06 mapping</t></si><si><t>Deck Management</t></si><si><t>View Deck Library (UC-07)</t></si><si><t>A logged-in user views their personal collection of decks with pagination.</t></si><si><t>Scalability:
+- Pagination: The GET /decks endpoint MUST support cursor- or offset-based pagination with a default page size of 20 decks. The system MUST NOT load all decks in a single query regardless of dataset size.
+- DB Index: A composite DB index on decks(userId, updated_at) MUST exist to ensure the paginated query (findByUserIdPaginated) executes in &lt; 1 second even when the user has 100+ decks.
+Performance:
+- Response Time: The paginated deck library API must return the first page of results in &lt; 1 second at P95 for datasets of 100+ decks.
+- Query Optimization: findByUserIdPaginated() MUST use LIMIT/OFFSET (or keyset pagination) with the indexed column; full-table scans are prohibited.
+Architectural Driver: AD-07 (Scalability/Data Volume, H,M)
+Utility Tree Scenario: Scalability/Data Volume (H,M)
+Tactics: T1 (DB Index), T7 (Query Optimization — LIMIT/OFFSET)
+Components: DeckController → DeckRepository.findByUserIdPaginated() → SQLite (decks index)
+Traceability: UC-07; SAD Section 10.1 T1, T7, Section 11.6 Trade-off, Section 13 UC-07 mapping</t></si><si><t>Architectural Driver: AD-07. BV=H, TR=M. H,M Driver.</t></si><si><t>Create / Edit / Delete Deck (UC-08, UC-09, UC-10)</t></si><si><t>A user creates a new deck, edits its metadata, or permanently deletes a deck and all its cards.</t></si><si><t>Reliability:
+- Cascade Delete Transaction: Delete Deck (UC-10) MUST execute a single atomic DB transaction: reviews → cards → deck. Rollback on any failure to prevent orphan data.
+- Orphan Prevention: FK ON DELETE CASCADE constraints on cards and reviews tables serve as DB-level safety net in addition to the application transaction.
+Security:
+- Resource-Level Authorization: Before any PATCH or DELETE on /decks/:id, ResourceAuthMiddleware MUST call DeckRepository.findByIdAndOwner(deckId, userId) to verify ownership. A null return MUST result in HTTP 403 Forbidden (MSG-AUTH-01) without invoking the controller logic.
+Usability:
+- Confirmation: Delete Deck must display MSG08 confirmation dialog before execution.
+Architectural Driver: AD-03 (Security/Authorization, H,M), AD-04 (Reliability/Transactions, H,M)
+Utility Tree Scenario: Security/Authorization (H,M); Reliability/Recoverability (H,L); Usability/Error Prevention (H,L)
+Tactics: T4 (Resource-Level Auth), T8 (DB Transactions), T20 (Orphan Prevention)
+Components: DeckController, ResourceAuthMiddleware, DeckRepository, CardRepository, ReviewRepository
+Traceability: UC-08, UC-09, UC-10; SAD Section 10.3 T4, Section 10.4 T8, Section 14.3 Sequence Diagram</t></si><si><t>Architectural Driver: AD-03, AD-04. BV=H, TR=M.</t></si><si><t>View Deck Statistics (UC-11, UC-12)</t></si><si><t>A user views summary and advanced statistics for a deck (card counts, review history, retention rates).</t></si><si><t>Performance:
+- SQL Aggregation: Statistics MUST be computed via SQL GROUP BY aggregation in ReviewRepository.aggregateStats() — not in-memory calculation — to ensure sub-200ms response for decks with up to 10,000 reviews.
+- Lazy Computation: Advanced statistics (UC-12) MUST be computed on-demand at query time rather than pre-computed on every card write, to avoid write amplification.
+Availability:
+- Graceful Degradation: If StatisticsService fails (DB timeout, query error), the system MUST return empty/cached stats and allow the study session to continue uninterrupted. StatisticsService failure must NOT propagate to the study flow.
+Architectural Driver: AD-07 (Scalability, H,M)
+Utility Tree Scenario: Scalability/Data Volume (H,M)
+Tactics: T7 (Query Optimization — SQL GROUP BY), T14 (Lazy Stats), T16 (Graceful Degradation)
+Components: StatisticsController → StatisticsService → ReviewRepository.aggregateStats()
+Traceability: UC-11, UC-12; SAD Section 10.1 T14, Section 10.2 T16, Section 13 UC-11/12 mapping</t></si><si><t>Architectural Driver: AD-07. BV=H, TR=M.</t></si><si><t>Card Management</t></si><si><t>Add Card (UC-14)</t></si><si><t>A user adds a new flashcard to a deck; bidirectional decks auto-generate the reverse card.</t></si><si><t>Reliability / Integrity:
+- SM-2 Parameter Initialization: On card creation, the system MUST initialize SM-2 scheduling parameters server-side: Interval=0, Repetitions=0, EFactor=2.5, NextReviewDate=today. These MUST NOT be supplied by or modifiable from the client.
+- Bidirectional Auto-Reverse: For BIDIRECTIONAL deck type, CardService.reverseCards() MUST atomically create the reverse card (front↔back swapped) within the same DB transaction as the original card insert. If reverse creation fails, both inserts MUST roll back.
+Security:
+- Resource-Level Authorization: ResourceAuthMiddleware MUST verify deck ownership before allowing card insertion.
+Conceptual Integrity:
+- The reverse card must be created in the same transaction to guarantee bidirectional consistency — no orphaned one-directional cards may exist.
+Architectural Driver: AD-04 (Reliability/Transactions, H,M)
+Utility Tree Scenario: Integrity/Conceptual Consistency (M,M)
+Tactics: T8 (DB Transactions), T4 (Resource-Level Auth)
+Components: CardController → CardService (SM2Init + reverseCards()) → CardRepository
+Traceability: UC-14; SAD Section 6.3 CardRepository, Section 13 UC-14 mapping</t></si><si><t>Architectural Driver: AD-04. BV=M, TR=M.</t></si><si><t>Edit / Delete Card (UC-15, UC-16)</t></si><si><t>A user edits card content or permanently deletes a single card from a deck.</t></si><si><t>Security:
+- Resource-Level Authorization: ResourceAuthMiddleware MUST verify ownership (userId == creatorId) for ALL PATCH and DELETE requests on /cards/:id before the controller is invoked. HTTP 403 returned on failure.
+Reliability:
+- Atomic Delete: Card deletion MUST delete associated review records within a single DB transaction (reviews → card) to prevent orphan review data.
+- Edit Atomicity: Card edits must be wrapped in a transaction; partial field updates must not leave a card in an inconsistent state.
+Architectural Driver: AD-03 (Security/Authorization, H,M), AD-04 (Reliability/Transactions, H,M)
+Utility Tree Scenario: Security/Authorization (H,M); Reliability/Data Integrity (H,M)
+Tactics: T4 (Resource-Level Auth), T8 (DB Transactions)
+Components: CardController, ResourceAuthMiddleware, CardRepository, ReviewRepository
+Traceability: UC-15, UC-16; SAD Section 10.3 T4, Section 10.4 T8</t></si><si><t>Import JSON (UC-18)</t></si><si><t>A user imports a batch of up to 1,000 cards from a standard JSON file.</t></si><si><t>Performance:
+- Batch Processing Latency: The POST /decks/:id/import endpoint MUST process and validate a JSON file containing 1,000 cards and complete the batch INSERT within &lt; 5 seconds under normal server load.
+- Bulk INSERT: ImportExportService MUST use CardRepository.batchInsert() (single bulk SQL INSERT) rather than looping individual INSERT statements to meet the 5-second target.
+Reliability:
+- Skip-Invalid Strategy: Invalid cards (failing JSON schema validation) MUST be skipped individually and logged; valid cards in the same batch MUST still be imported. The response MUST report {created: N, skipped: M}.
+- Schema Validation: JSON structure must be validated against the FlashLearn card schema before batchInsert() is called; malformed files must return HTTP 400 with a descriptive error.
+Security:
+- Resource-Level Authorization: ResourceAuthMiddleware must verify deck ownership before accepting an import.
+Architectural Driver: AD-07 (Scalability), implied by Performance/Throughput (M,M)
+Utility Tree Scenario: Performance/Throughput (M,M)
+Tactics: T7 (Query Optimization — bulk INSERT), T19 (Input Validation)
+Components: ImportExportController → ImportExportService → CardRepository.batchInsert()
+Traceability: UC-18; SAD Section 6.3 CardRepository.batchInsert(), Section 13 UC-18 mapping</t></si><si><t>Export JSON (UC-19)</t></si><si><t>A user exports all cards from a deck as a standard JSON file.</t></si><si><t>Interoperability:
+- Standard JSON Format: The exported file MUST conform to the FlashLearn JSON schema, including all card metadata (front, back, deckType, SM-2 parameters, timestamps) to ensure full re-importability.
+- Content-Disposition Header: The HTTP response MUST set 'Content-Disposition: attachment; filename=&quot;&lt;deck-name&gt;.json&quot;' to trigger browser download.
+Security:
+- Resource-Level Authorization: ResourceAuthMiddleware must verify deck ownership before allowing export.
+- Data Isolation: The export query MUST scope to the authenticated user's deck only (userId + deckId); cross-user data access is prohibited.
+Architectural Driver: AD-03, AD-06
+Utility Tree Scenario: Interoperability/Data Exchange (M,L)
+Tactics: T3 (Data Isolation), T4 (Resource-Level Auth)
+Components: ImportExportController → ImportExportService → CardRepository
+Traceability: UC-19; SAD Section 13 UC-19 mapping</t></si><si><t>BV=M, TR=L.</t></si><si><t>Study Activities</t></si><si><t>Start Study Session (UC-20)</t></si><si><t>A user initiates a study session; the system queries all due cards for today's review.</t></si><si><t>Performance (CRITICAL — H,H Driver):
+- Query Latency: CardRepository.findDueCards(deckId, userId, today) MUST complete in &lt; 500ms at P95 on a dataset of up to 50,000 cards (combined across all users).
+- Composite DB Index: A composite index idx_cards_due ON cards(deckId, userId, nextReviewDate) MUST be defined and verified to eliminate full-table scans. Without this index, query time on 50k rows is estimated at 2–5 seconds.
+- Query Structure: findDueCards() MUST use WHERE deckId=? AND userId=? AND nextReviewDate &lt;= ? ORDER BY nextReviewDate ASC LIMIT ? — all three WHERE columns must be part of the index.
+- In-Process SM-2: SM2Service.calculate() is a pure in-process function with zero I/O, executing in &lt; 1ms. It MUST NOT be externalized (no network call, no DB read inside calculate()).
+Architectural Driver: AD-01 (Performance/Latency, H,H) — HIGHEST PRIORITY DRIVER
+Utility Tree Scenario: Performance/Latency (H,H)
+Tactics: T1 (DB Index — composite), T7 (Query Optimization), T13 (Reduce Computational Demand — in-process SM-2)
+Components: StudyController → CardRepository.findDueCards() → SQLite (idx_cards_due)
+Traceability: UC-20; SAD Section 9 Scenario S1, Section 10.1 T1 T7 T13, Section 12 Iteration 2, Section 14.1 Sequence Diagram</t></si><si><t>Architectural Driver: AD-01. BV=H, TR=H. H,H DRIVER — TOP PRIORITY.</t></si><si><t>Record Review Outcome — Online (UC-21)</t></si><si><t>User rates a card (AGAIN/HARD/GOOD/EASY); system recalculates SM-2 parameters and persists the result.</t></si><si><t>Reliability:
+- Atomic Transaction: ReviewService.submitReview() MUST execute BEGIN TX → CardRepository.update(card with new SM-2 params) → ReviewRepository.create(review record) → COMMIT TX as a single atomic operation. Any failure triggers ROLLBACK — no partial state (updated card without review record, or vice versa) is permitted.
+- SM-2 Server-Side Execution: SM2Service.calculate(card, rating) MUST execute server-side only. Client-supplied SM-2 results must never be accepted to prevent manipulation of review schedules.
+- Error Propagation: If DB error occurs, ReviewService catches DbConnectionError and returns HTTP 503; the card queue is not advanced.
+Performance:
+- Card review API response (POST /study/review) must complete in &lt; 500ms at P95, including SM-2 recalculation and the atomic DB transaction.
+Architectural Driver: AD-01 (Performance, H,H), AD-04 (Reliability/Transactions, H,M)
+Utility Tree Scenario: Performance/Latency (H,H); Reliability/Data Integrity (H,M)
+Tactics: T8 (DB Transactions), T13 (In-process SM-2), T9 (Exception Detection)
+Components: StudyController → ReviewService → SM2Service (in-process) → CardRepository + ReviewRepository (atomic TX)
+Traceability: UC-21; SAD Section 7.2 Request Flow, Section 10.1 T13, Section 10.4 T8, Section 14.1 Sequence Diagram</t></si><si><t>Architectural Driver: AD-01, AD-04. BV=H, TR=H/M.</t></si><si><t>Record Review Outcome — Offline (UC-21, AD-02)</t></si><si><t>User rates cards while network is unavailable; reviews are queued locally and synced on reconnect.</t></si><si><t xml:space="preserve">
+Architectural Driver: AD-02 (Availability/Offline, M,H) — HIGHEST TECHNICAL RISK
+Utility Tree Scenario: Availability/Fault Tolerance (M,H)
+Tactics: T10 (Offline Cache — IndexedDB), T11 (Batch Sync), T12 (Network Monitor)
+Components: SPA OfflineSyncService + OfflineCacheUI → IndexedDB → POST /review/batch → ReviewService
+Traceability: UC-21; SAD Section 7.3 Offline Flow, Section 10.2 T10 T11 T12, Section 11.2 Decision 2, Section 14.2 Sequence Diagram</t></si><si><t>Architectural Driver: AD-02. BV=M, TR=H. HIGHEST TECHNICAL RISK.</t></si><si><t>Session Summary / Session Statistics (UC-22, UC-23)</t></si><si><t>System displays end-of-session summary and historical study statistics filtered by date range.</t></si><si><t>Performance:
+- Session Summary: calculateAccuracy() on session data MUST complete in &lt; 200ms since it operates on the in-memory card queue of the current session (no additional DB query required).
+- Historical Statistics (UC-23): SQL GROUP BY aggregation filtered by (userId, startDate, endDate) MUST complete in &lt; 500ms for up to 1 year of review history.
+Availability:
+- Graceful Degradation: If StatisticsService is unavailable, the study session MUST continue unaffected; summary/statistics pages MAY display empty state with a user-friendly message.
+Architectural Driver: AD-01 (Performance), AD-07 (Scalability)
+Utility Tree Scenario: Performance/Latency (H,H); Scalability/Data Volume (H,M)
+Tactics: T7 (Query Optimization — SQL GROUP BY), T16 (Graceful Degradation)
+Components: StudyController → StatisticsService → ReviewRepository
+Traceability: UC-22, UC-23; SAD Section 13 UC-22/23 mapping</t></si><si><t>Architectural Driver: AD-01, AD-07. BV=M–H.</t></si><si><t>Admin &amp; Authorization</t></si><si><t>Resource-Level Authorization (UC-24)</t></si><si><t>Admin A attempts to mutate (PATCH/DELETE) a resource (deck/card) owned by Admin B; system enforces ownership-based access control.</t></si><si><t>Security (H,M Driver):
+- Ownership Verification: For ALL mutating HTTP methods (PATCH, DELETE) on /decks/:id and /cards/:id, ResourceAuthMiddleware MUST invoke DeckRepository.findByIdAndOwner(deckId, req.user.id). If the result is null (resource not found OR requester is not owner), the middleware MUST respond with HTTP 403 (MSG-AUTH-01: 'Access denied') immediately — the downstream controller must NOT be invoked.
+- Role Insufficiency: Role-based access control (RBAC) alone is insufficient for this requirement. Even two users sharing the 'Admin' role must NOT be able to mutate each other's resources. Ownership (userId == creatorId) is the authoritative check.
+- Read Allowance: GET requests on /decks/:id by an Administrator MUST be permitted regardless of ownership (read-all privilege for Admins).
+- Single Query: findByIdAndOwner() MUST combine ownership verification AND resource existence into a single SQL query (WHERE id=? AND userId=?) to avoid race conditions from two separate queries.
+- Performance Trade-off: The +50ms overhead per mutating request introduced by ResourceAuthMiddleware is explicitly accepted. Security (AD-03) takes precedence over this minor latency impact per SAD Section 11.3.
+Architectural Driver: AD-03 (Security/Authorization, H,M)
+Utility Tree Scenario: Security/Authorization (H,M)
+Tactics: T3 (Data Isolation), T4 (Resource-Level Authorization), T6 (Generic Error Messages)
+Components: ResourceAuthMiddleware → DeckRepository.findByIdAndOwner() → HTTP 403 response
+Traceability: UC-24; SAD Section 7.4, Section 9 Scenario S3, Section 10.3 T3 T4, Section 11.3 Decision 3, Section 14.3 Sequence Diagram, Section 15.1 Traceability Matrix</t></si><si><t>Architectural Driver: AD-03. BV=H, TR=M. H,M DRIVER.</t></si><si><t>Infrastructure &amp; Deployment</t></si><si><t>Docker Deployment &amp; High Availability (NFR)</t></si><si><t>The system is deployed as a multi-container Docker application (Nginx + Node.js + SQLite) with automatic restart policy.</t></si><si><t>Availability:
+- Container Restart Policy: All Docker containers MUST be configured with restart: always. The Node.js application container must restart automatically within 30 seconds of an unexpected crash, ensuring target uptime of &gt;= 99%.
+- Data Persistence: SQLite data MUST be mounted to a Docker named volume to guarantee zero data loss across container restarts and re-deployments.
+- Network Isolation: The SQLite container MUST NOT expose port 5432 to the public network; it is accessible only on the internal Docker network by the Node.js container.
+Scalability (v2.0):
+- Horizontal Scaling Readiness: The Node.js application layer MUST be stateless (JWT-based, no server-side session state) to enable horizontal scaling via Nginx upstream load balancing in v2.0 without code changes.
+- Nginx Reverse Proxy: Nginx MUST perform SSL/TLS termination, HTTP→HTTPS redirect, and rate limiting at the edge layer, offloading these concerns from the Node.js application.
+Architectural Driver: AD-02 (Availability), AD-05 (Security), AD-07 (Scalability)
+Utility Tree Scenario: Availability/Fault Tolerance (M,H)
+Tactics: T15 (Active Redundancy — Docker restart:always), T17 (JWT Auth — stateless)
+Components: Docker Compose (nginx:alpine, node:LTS, postgres:15), Named Volume, Docker Bridge Network
+Traceability: SAD Section 8 Deployment View, Section 11.5 Tech Stack (Docker + Nginx), Section 2.2 Deployment Constraints</t></si><si><t>Architectural Driver: AD-02, AD-05, AD-07.</t></si><si><t>Database Indexing Strategy (NFR)</t></si><si><t>Composite and single-column DB indexes are defined to ensure sub-second query performance for all hot query paths.</t></si><si><t>Performance:
+- idx_cards_due: CREATE INDEX idx_cards_due ON cards(deckId, userId, nextReviewDate) — MANDATORY for UC-20 (findDueCards). Without this index, P95 query time exceeds 2 seconds on 50,000-card datasets.
+- idx_decks_user: CREATE INDEX idx_decks_user ON decks(userId, updated_at) — MANDATORY for UC-07 (findByUserIdPaginated). Enables &lt; 1 second response for 100+ decks.
+- Index Verification: Automated integration tests MUST confirm that both indexes exist (information_schema.statistics) and that EXPLAIN QUERY PLAN shows index usage for findDueCards() and findByUserIdPaginated().
+Trade-offs:
+- Each index introduces ~5% write overhead on INSERT/UPDATE operations. This is explicitly accepted per SAD Section 10.5 T1 cross-impact analysis.
+- Schema changes to indexed columns require corresponding index updates — documented in the Data Access Layer.
+Architectural Driver: AD-01 (H,H), AD-07 (H,M)
+Utility Tree Scenario: Performance/Latency (H,H); Scalability/Data Volume (H,M)
+Tactics: T1 (DB Index — Composite + Single-column)
+Components: SQLite schema (cards table, decks table) → CardRepository + DeckRepository
+Traceability: SAD Section 10.1 T1, Section 12 Iteration 2 &amp; 5, Section 2.1 NFR table</t></si><si><t>Architectural Driver: AD-01, AD-07. BV=H, TR=H/M.</t></si><si><t>JWT Authentication Strategy (NFR)</t></si><si><t>All secured API endpoints are protected by JWT-based stateless authentication via AuthMiddleware.</t></si><si><t>Security:
+- JWT Storage: JWTs MUST be stored exclusively in HttpOnly, SameSite=Strict cookies. Storage in localStorage or sessionStorage is prohibited (XSS vulnerability).
+- Signature Algorithm: JWTs MUST be signed with HS256 (minimum) or RS256. Algorithm 'none' and symmetric algorithms weaker than HS256 are prohibited.
+- Expiry: JWTs MUST include an 'exp' claim. Tokens must expire within a configurable maximum (e.g., 24 hours); refresh token mechanism required for sessions longer than the access token TTL.
+- Verification: AuthMiddleware MUST verify JWT signature and expiry on every request to a protected endpoint. Invalid or expired tokens MUST return HTTP 401.
+Performance:
+- Stateless Benefit: JWT-based auth eliminates server-side session DB lookup on every request, reducing latency by ~10–20ms per request compared to session-store-based auth.
+Trade-offs:
+- JWT_SECRET rotation invalidates all active sessions simultaneously — requires coordinated deployment strategy.
+Architectural Driver: AD-05 (Security/Authentication, H,M)
+Utility Tree Scenario: Security/Authentication (H,M); Performance/Latency (H,H)
+Tactics: T17 (JWT Auth), T18 (HTTPS + HttpOnly Cookie)
+Components: AuthMiddleware (JWT verification) → all protected Express routes
+Traceability: SAD Section 10.3 T17, T18, Section 11.5 Tech Stack (JWT + HttpOnly cookie), Section 2.1 NFR</t></si><si><t>Architectural Driver: AD-05. BV=H, TR=M.</t></si><si><t>Global Error Handling &amp; Graceful Degradation (NFR)</t></si><si><t>The Express application handles all unhandled errors globally; individual service failures degrade gracefully without crashing the application.</t></si><si><t>Availability:
+- Global Error Handler: The Express application MUST register a global error-handling middleware (app.use((err, req, res, next) =&gt; ...)) as the last middleware in the chain. It MUST catch all unhandled promise rejections and synchronous errors, returning a structured JSON error response (status code + message) without exposing stack traces.
+- StatisticsService Isolation: StatisticsService failures MUST NOT propagate to the study session. On error, StatisticsService.aggregateStats() MUST return empty/cached stats; the study flow continues.
+- BruteForceGuard Fail-Open: If the login_attempts DB query fails, BruteForceGuard MUST fail open (allow login to proceed) and log the failure. The login flow must not be blocked by a secondary guard system failure.
+Reliability:
+- Process Crash Prevention: Unhandled promise rejections that would crash the Node.js process must be caught by the global error handler, ensuring process continuity.
+Architectural Driver: AD-04 (Reliability, H,M), AD-02 (Availability)
+Utility Tree Scenario: Reliability/Data Integrity (H,M); Availability/Fault Tolerance (M,H)
+Tactics: T9 (Exception Detection — global error handler), T16 (Graceful Degradation)
+Components: Express global error middleware, StatisticsService (isolated), BruteForceGuard (fail-open)
+Traceability: SAD Section 10.2 T9, T16, Section 6.3 interface contracts (error responses)</t></si><si><t>Architectural Driver: AD-04, AD-02. BV=H, TR=M.</t></si></sst>
